@@ -1,103 +1,280 @@
-import Image from "next/image";
+"use client"
 
-export default function Home() {
+import React, { useState, useEffect } from 'react';
+import { Sidebar } from '@/components/ui/sidebar';
+import { LoginPage } from '@/components/auth/login-page';
+import { DashboardView } from '@/components/dashboard/dashboard-view';
+import { StudentsView } from '@/components/students/students-view';
+import { PaymentsView } from '@/components/payments/payments-view';
+import { SMSView } from '@/components/sms/sms-view';
+import { Student, FeePayment, View } from '@/types';
+import { loginUser, saveAuthToken, removeAuthToken, isAuthenticated, User } from '@/lib/auth';
+
+export default function SchoolManagementApp() {
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [currentView, setCurrentView] = useState<View>('dashboard');
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  // Check authentication on mount
+  useEffect(() => {
+    if (isAuthenticated()) {
+      setIsLoggedIn(true);
+      // In production, fetch user data from API using token
+    }
+  }, []);
+
+  const [students, setStudents] = useState<Student[]>([
+    {
+      id: '1',
+      firstName: 'John',
+      lastName: 'Doe',
+      grade: 'Grade 7',
+      admissionNumber: 'STU001',
+      dateOfBirth: '2008-05-15',
+      guardians: [{
+        id: 'g1',
+        name: 'Jane Doe',
+        phone: '+254712345678',
+        email: 'jane.doe@email.com',
+        relationship: 'Mother'
+      }],
+      feeBalance: 15000,
+      totalFees: 50000,
+      paidFees: 35000
+    },
+    {
+      id: '2',
+      firstName: 'Mary',
+      lastName: 'Smith',
+      grade: 'Grade 9',
+      admissionNumber: 'STU002',
+      dateOfBirth: '2009-08-22',
+      guardians: [{
+        id: 'g2',
+        name: 'Robert Smith',
+        phone: '+254723456789',
+        email: 'robert.smith@email.com',
+        relationship: 'Father'
+      }],
+      feeBalance: 0,
+      totalFees: 50000,
+      paidFees: 50000
+    },
+    {
+      id: '3',
+      firstName: 'Kevin',
+      lastName: 'Mwangi',
+      grade: 'PP1 (Pre-Primary 1)',
+      admissionNumber: 'STU003',
+      dateOfBirth: '2020-03-12',
+      guardians: [{
+        id: 'g3',
+        name: 'Grace Mwangi',
+        phone: '+254734567890',
+        email: 'grace.mwangi@email.com',
+        relationship: 'Mother'
+      }],
+      feeBalance: 5000,
+      totalFees: 30000,
+      paidFees: 25000
+    }
+  ]);
+
+  const [payments, setPayments] = useState<FeePayment[]>([
+    {
+      id: 'p1',
+      studentId: '1',
+      studentName: 'John Doe',
+      studentClass: 'Grade 7',
+      parentName: 'Jane Doe',
+      parentPhone: '+254712345678',
+      amount: 20000,
+      date: '2025-09-15',
+      time: '10:30',
+      paymentMethod: 'Kcb M-Pesa',
+      mpesaCode: 'MP123XYZ',
+      receiptNumber: 'RCP001'
+    }
+  ]);
+
+  const handleLogin = async (email: string, password: string) => {
+    const result = await loginUser(email, password);
+
+    if (result.success && result.token && result.user) {
+      saveAuthToken(result.token);
+      setCurrentUser(result.user);
+      setIsLoggedIn(true);
+    } else {
+      alert(result.error || 'Login failed');
+    }
+  };
+
+  const handleLogout = () => {
+    removeAuthToken();
+    setCurrentUser(null);
+    setIsLoggedIn(false);
+    setCurrentView('dashboard');
+  };
+
+  const handleAddStudent = (formData: any) => {
+    const student: Student = {
+      id: Date.now().toString(),
+      firstName: formData.firstName,
+      lastName: formData.lastName,
+      grade: formData.grade,
+      admissionNumber: formData.admissionNumber,
+      dateOfBirth: formData.dateOfBirth,
+      guardians: [{
+        id: Date.now().toString(),
+        name: formData.guardianName,
+        phone: formData.guardianPhone,
+        email: formData.guardianEmail,
+        relationship: formData.relationship
+      }],
+      totalFees: parseFloat(formData.totalFees),
+      paidFees: 0,
+      feeBalance: parseFloat(formData.totalFees)
+    };
+
+    setStudents([...students, student]);
+    alert(`Student ${formData.firstName} ${formData.lastName} added successfully!`);
+  };
+
+  const handleDeleteStudent = (studentId: string) => {
+    const student = students.find(s => s.id === studentId);
+
+    // Remove student from students array
+    setStudents(students.filter(s => s.id !== studentId));
+
+    // Also remove associated payments
+    setPayments(payments.filter(p => p.studentId !== studentId));
+
+    if (student) {
+      alert(`Student ${student.firstName} ${student.lastName} has been deleted successfully.`);
+    }
+  };
+
+  const handleTransferStudent = (studentId: string, newClass: string) => {
+    const student = students.find(s => s.id === studentId);
+    const oldClass = student?.grade;
+
+    // Update student's grade/class
+    setStudents(students.map(s =>
+      s.id === studentId ? { ...s, grade: newClass } : s
+    ));
+
+    // Update class in all associated payments
+    setPayments(payments.map(p =>
+      p.studentId === studentId ? { ...p, studentClass: newClass } : p
+    ));
+
+    if (student) {
+      alert(`${student.firstName} ${student.lastName} transferred from ${oldClass} to ${newClass} successfully!`);
+    }
+  };
+
+  const handleAddPayment = (formData: any) => {
+    console.log('Received from dialog:', formData);
+
+    const student = students.find(s => s.id === formData.studentId);
+    if (!student) {
+      alert('Student not found');
+      return;
+    }
+
+    // Generate receipt number
+    const receiptNumber = `RCP${Date.now().toString().slice(-6)}`;
+
+    // Create payment object using data from dialog
+    const payment: FeePayment = {
+      id: Date.now().toString(),
+      studentId: formData.studentId,
+      studentName: formData.studentName,
+      studentClass: formData.studentClass,
+      parentName: formData.parentName,
+      parentPhone: formData.parentPhone,
+      mpesaCode: formData.mpesaCode || '',
+      amount: parseFloat(formData.amount),
+      date: formData.date,
+      time: formData.time,
+      paymentMethod: formData.paymentMethod || 'Kcb M-Pesa',
+      receiptNumber: receiptNumber
+    };
+
+    console.log('Created payment:', payment);
+
+    // Add to beginning of payments array (newest first)
+    setPayments([payment, ...payments]);
+
+    // Update student balance
+    setStudents(students.map(s => {
+      if (s.id === formData.studentId) {
+        const newPaid = s.paidFees + parseFloat(formData.amount);
+        return {
+          ...s,
+          paidFees: newPaid,
+          feeBalance: s.totalFees - newPaid
+        };
+      }
+      return s;
+    }));
+
+    alert(`Payment Recorded Successfully!\n\nReceipt: ${receiptNumber}\nStudent: ${formData.studentName}\nAmount: KES ${parseFloat(formData.amount).toLocaleString()}`);
+  };
+
+  const handleSendSMS = (selectedIds: string[], message: string) => {
+    const recipients = selectedIds.length > 0
+      ? students.filter(s => selectedIds.includes(s.id))
+      : students.filter(s => s.feeBalance > 0);
+
+    alert(`SMS would be sent to ${recipients.length} guardian(s):\n\n${message}\n\nIntegrate with SMS gateway API (Africa's Talking, Twilio, etc.)`);
+  };
+
+  // Show login page if not authenticated
+  if (!isLoggedIn) {
+    return <LoginPage onLogin={handleLogin} />;
+  }
+
+  // Show main application
   return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+    <div className="flex h-screen bg-gray-50">
+      <Sidebar
+        currentView={currentView}
+        onViewChange={setCurrentView}
+        isOpen={sidebarOpen}
+        onToggle={() => setSidebarOpen(!sidebarOpen)}
+        onLogout={handleLogout}
+      />
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
+      <div className="flex-1 overflow-auto">
+        <div className="p-8">
+          {currentView === 'dashboard' && (
+            <DashboardView students={students} payments={payments} />
+          )}
+
+          {currentView === 'students' && (
+            <StudentsView
+              students={students}
+              onAddStudent={handleAddStudent}
+              onDeleteStudent={handleDeleteStudent}
+              onTransferStudent={handleTransferStudent}
             />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+          )}
+
+          {currentView === 'payments' && (
+            <PaymentsView
+              students={students}
+              payments={payments}
+              onAddPayment={handleAddPayment}
+            />
+          )}
+
+          {currentView === 'sms' && (
+            <SMSView students={students} onSendSMS={handleSendSMS} />
+          )}
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+      </div>
     </div>
   );
 }
