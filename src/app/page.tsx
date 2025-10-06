@@ -8,20 +8,34 @@ import { StudentsView } from '@/components/students/students-view';
 import { PaymentsView } from '@/components/payments/payments-view';
 import { SMSView } from '@/components/sms/sms-view';
 import { Student, FeePayment, View } from '@/types';
-import { loginUser, saveAuthToken, removeAuthToken, isAuthenticated, User } from '@/lib/auth';
+import { loginUser, saveAuthToken, removeAuthToken, isAuthenticated, logoutUser, verifySession, User } from '@/lib/auth';
 
 export default function SchoolManagementApp() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Check authentication on mount
+  // Check authentication on mount and verify with backend
   useEffect(() => {
-    if (isAuthenticated()) {
-      setIsLoggedIn(true);
-      // In production, fetch user data from API using token
-    }
+    const checkAuth = async () => {
+      if (isAuthenticated()) {
+        // Verify session with backend
+        const result = await verifySession();
+        if (result.success && result.user) {
+          setCurrentUser(result.user);
+          setIsLoggedIn(true);
+        } else {
+          // Session invalid, clear local storage
+          removeAuthToken();
+          setIsLoggedIn(false);
+        }
+      }
+      setIsLoading(false);
+    };
+
+    checkAuth();
   }, []);
 
   const [students, setStudents] = useState<Student[]>([
@@ -110,8 +124,8 @@ export default function SchoolManagementApp() {
     }
   };
 
-  const handleLogout = () => {
-    removeAuthToken();
+  const handleLogout = async () => {
+    await logoutUser();
     setCurrentUser(null);
     setIsLoggedIn(false);
     setCurrentView('dashboard');
@@ -231,6 +245,18 @@ export default function SchoolManagementApp() {
     alert(`SMS would be sent to ${recipients.length} guardian(s):\n\n${message}\n\nIntegrate with SMS gateway API (Africa's Talking, Twilio, etc.)`);
   };
 
+  // Show loading state
+  if (isLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
   // Show login page if not authenticated
   if (!isLoggedIn) {
     return <LoginPage onLogin={handleLogin} />;
@@ -249,6 +275,15 @@ export default function SchoolManagementApp() {
 
       <div className="flex-1 overflow-auto">
         <div className="p-8">
+          {/* User Info Banner */}
+          {currentUser && (
+            <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+              <p className="text-sm text-blue-800">
+                <strong>Logged in as:</strong> {currentUser.name} ({currentUser.email}) • <strong>School:</strong> {currentUser.schoolName}
+              </p>
+            </div>
+          )}
+
           {currentView === 'dashboard' && (
             <DashboardView students={students} payments={payments} />
           )}
