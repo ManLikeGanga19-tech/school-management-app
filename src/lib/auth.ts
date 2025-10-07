@@ -1,9 +1,12 @@
 // ============================================
 // FILE: lib/auth.ts (Frontend - Client Side)
-// Updated to integrate with backend API
+// Default login works in dev & prod
 // ============================================
 import bcrypt from 'bcryptjs';
 
+// ============================================
+// Password Hashing
+// ============================================
 export async function hashPassword(password: string): Promise<string> {
     const saltRounds = 10;
     return await bcrypt.hash(password, saltRounds);
@@ -13,6 +16,9 @@ export async function verifyPassword(password: string, hashedPassword: string): 
     return await bcrypt.compare(password, hashedPassword);
 }
 
+// ============================================
+// User & Auth Interfaces
+// ============================================
 export interface User {
     id: string;
     email: string;
@@ -28,35 +34,39 @@ export interface AuthResponse {
     error?: string;
 }
 
+// ============================================
+// API Base URL
+// ============================================
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '';
+
+// ============================================
+// Default credentials (works in dev & prod)
+// ============================================
+const DEFAULT_EMAIL = process.env.DEFAULT_EMAIL || 'admin@demo.com';
+const DEFAULT_PASSWORD = process.env.DEFAULT_PASSWORD || 'password123';
 
 // ============================================
 // Login user - Calls backend API
 // ============================================
 export async function loginUser(email: string, password: string): Promise<AuthResponse> {
     try {
-        // ✅ Default credentials for development
-        if (process.env.NODE_ENV === 'development') {
-            const defaultEmail = 'admin@demo.com';
-            const defaultPassword = 'password123';
+        // ✅ Check default credentials first
+        if (email === DEFAULT_EMAIL && password === DEFAULT_PASSWORD) {
+            const mockUser: User = {
+                id: 'default-user',
+                email: DEFAULT_EMAIL,
+                name: 'Default Admin',
+                schoolName: 'Default School',
+                role: 'admin',
+            };
 
-            if (email === defaultEmail && password === defaultPassword) {
-                // Simulate a successful login
-                const mockUser: User = {
-                    id: 'dev-user-1',
-                    email: defaultEmail,
-                    name: 'Demo Admin',
-                    schoolName: 'Demo School',
-                    role: 'admin',
-                };
+            saveAuthToken('default-token');
 
-                saveAuthToken('dev-token');
-                return {
-                    success: true,
-                    user: mockUser,
-                    token: 'dev-token',
-                };
-            }
+            return {
+                success: true,
+                user: mockUser,
+                token: 'default-token',
+            };
         }
 
         // Normal API login request
@@ -66,7 +76,7 @@ export async function loginUser(email: string, password: string): Promise<AuthRe
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({ email, password }),
-            credentials: 'include', // Important: Sends cookies
+            credentials: 'include',
         });
 
         const data = await response.json();
