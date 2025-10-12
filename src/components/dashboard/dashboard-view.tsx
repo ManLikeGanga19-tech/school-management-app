@@ -1,15 +1,78 @@
-import React from 'react';
-import { Users, DollarSign, Bell, TrendingUp, AlertCircle, CheckCircle } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Users, DollarSign, Bell, TrendingUp, AlertCircle, CheckCircle, User } from 'lucide-react';
 import { StatsCard } from './stat-card';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Student, FeePayment } from '@/types';
-
+import { studentService } from '@/lib/appwrite/student.service';
+import { authService } from '@/lib/appwrite/auth.service';
+import { paymentService } from '@/lib/appwrite/payment.service';
 interface DashboardViewProps {
     students: Student[];
     payments: FeePayment[];
+    currentUser?: {
+        name: string;
+        schoolName: string;
+        role: string;
+    } | null;
 }
 
-export function DashboardView({ students, payments }: DashboardViewProps) {
+export function DashboardView({ students: propsStudents, payments: propsPayments, currentUser }: DashboardViewProps) {
+    const [students, setStudents] = useState<Student[]>(propsStudents);
+    const [payments, setPayments] = useState<FeePayment[]>(propsPayments);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState('');
+
+    useEffect(() => {
+        fetchDashboardData();
+    }, []);
+
+    const fetchDashboardData = async () => {
+        setIsLoading(true);
+        setError('');
+        try {
+            const user = await authService.getCurrentUser();
+            if (!user) {
+                setError('Please login to view dashboard');
+                setIsLoading(false);
+                return;
+            }
+
+            console.log('Fetching dashboard data for user:', user.$id);
+
+            // Fetch students and payments from Appwrite
+            const [studentsData, paymentsData] = await Promise.all([
+                studentService.getStudents(user.$id),
+                paymentService.getPayments(user.$id)
+            ]);
+
+            console.log('Students fetched for dashboard:', studentsData);
+            console.log('Payments fetched for dashboard:', paymentsData);
+
+            // Map $id to id for consistency
+            const mappedStudents = studentsData.map(student => ({
+                ...student,
+                id: student.$id || student.$id,
+            }));
+
+            const mappedPayments = paymentsData.map(payment => ({
+                ...payment,
+                id: payment.$id || payment.$id,
+            }));
+
+            setStudents(mappedStudents);
+            setPayments(mappedPayments);
+
+        } catch (error: any) {
+            console.error('Failed to fetch dashboard data:', error);
+            setError(error.message || 'Failed to load dashboard data');
+            setStudents(propsStudents);
+            setPayments(propsPayments);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+    
+
     const totalStudents = students.length;
     const totalOutstanding = students.reduce((sum, s) => sum + s.feeBalance, 0);
     const totalCollected = students.reduce((sum, s) => sum + s.paidFees, 0);
@@ -48,8 +111,60 @@ export function DashboardView({ students, payments }: DashboardViewProps) {
     const partiallyPaid = students.filter(s => s.paidFees > 0 && s.feeBalance > 0).length;
     const notPaid = students.filter(s => s.paidFees === 0).length;
 
+    // Helper function to format role
+    const formatRole = (role: string) => {
+        return role.charAt(0).toUpperCase() + role.slice(1);
+    };
+
+    if (isLoading) {
+        return (
+            <div className="w-full max-w-full overflow-x-hidden px-2 sm:px-4">
+                <Card>
+                    <CardContent className="p-8 text-center">
+                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                        <p className="text-gray-600">Loading dashboard...</p>
+                    </CardContent>
+                </Card>
+            </div>
+        );
+    }
+
     return (
         <div className="w-full max-w-full overflow-x-hidden px-2 sm:px-4">
+            {/* User Info Banner */}
+            {currentUser && (
+                <Card className="mb-4 sm:mb-6 bg-gradient-to-r from-blue-50 to-blue-100 border-blue-200">
+                    <CardContent className="p-4">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-blue-600 flex items-center justify-center flex-shrink-0">
+                                <User className="text-white" size={20} />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                                <h3 className="text-base sm:text-lg font-bold text-blue-900 truncate">
+                                    {currentUser.name}
+                                </h3>
+                                <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm text-blue-700">
+                                    <span className="font-medium">{currentUser.schoolName}</span>
+                                    <span className="hidden sm:inline">•</span>
+                                    <span className="px-2 py-0.5 bg-blue-600 text-white rounded-full text-xs font-medium">
+                                        {formatRole(currentUser.role)}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
+
+            {/* Error Message */}
+            {error && (
+                <Card className="mb-4 sm:mb-6 bg-red-50 border-red-200">
+                    <CardContent className="p-4">
+                        <p className="text-red-600">{error}</p>
+                    </CardContent>
+                </Card>
+            )}
+
             {/* Header */}
             <div className="mb-4 sm:mb-6">
                 <h2 className="text-xl sm:text-3xl font-bold text-gray-800">Dashboard</h2>
@@ -128,21 +243,25 @@ export function DashboardView({ students, payments }: DashboardViewProps) {
                         <CardTitle className="text-sm sm:text-lg">Students by Level</CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <div className="space-y-3 sm:space-y-4">
-                            {Object.entries(studentsByLevel).map(([level, count]) => (
-                                <div key={level} className="flex items-center justify-between">
-                                    <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
-                                        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${level === 'Early Years' ? 'bg-pink-500' :
+                        {Object.keys(studentsByLevel).length > 0 ? (
+                            <div className="space-y-3 sm:space-y-4">
+                                {Object.entries(studentsByLevel).map(([level, count]) => (
+                                    <div key={level} className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+                                            <div className={`w-2 h-2 rounded-full flex-shrink-0 ${level === 'Early Years' ? 'bg-pink-500' :
                                                 level === 'Lower Primary' ? 'bg-blue-500' :
                                                     level === 'Upper Primary' ? 'bg-green-500' :
                                                         level === 'Junior Secondary' ? 'bg-purple-500' : 'bg-gray-500'
-                                            }`}></div>
-                                        <span className="font-medium text-gray-700 text-xs sm:text-base truncate">{level}</span>
+                                                }`}></div>
+                                            <span className="font-medium text-gray-700 text-xs sm:text-base truncate">{level}</span>
+                                        </div>
+                                        <span className="text-lg sm:text-2xl font-bold text-gray-800 flex-shrink-0">{count}</span>
                                     </div>
-                                    <span className="text-lg sm:text-2xl font-bold text-gray-800 flex-shrink-0">{count}</span>
-                                </div>
-                            ))}
-                        </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <p className="text-center text-gray-500 py-4">No students enrolled yet</p>
+                        )}
                     </CardContent>
                 </Card>
 
@@ -190,31 +309,37 @@ export function DashboardView({ students, payments }: DashboardViewProps) {
                     </CardHeader>
                     <CardContent>
                         <div className="space-y-2 sm:space-y-3">
-                            {topDebtors.map((student, index) => (
-                                <div key={student.id} className="flex items-center justify-between p-3 sm:p-4 border rounded-lg hover:bg-gray-50 transition-colors gap-3">
-                                    <div className="flex items-center gap-2 sm:gap-4 min-w-0 flex-1">
-                                        <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
-                                            <span className="text-red-600 font-bold text-xs sm:text-sm">{index + 1}</span>
+                            {topDebtors.map((student, index) => {
+                                const guardians = typeof student.guardians === 'string'
+                                    ? JSON.parse(student.guardians)
+                                    : student.guardians;
+
+                                return (
+                                    <div key={student.id} className="flex items-center justify-between p-3 sm:p-4 border rounded-lg hover:bg-gray-50 transition-colors gap-3">
+                                        <div className="flex items-center gap-2 sm:gap-4 min-w-0 flex-1">
+                                            <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                                                <span className="text-red-600 font-bold text-xs sm:text-sm">{index + 1}</span>
+                                            </div>
+                                            <div className="min-w-0 flex-1">
+                                                <p className="font-semibold text-gray-800 text-xs sm:text-base truncate">
+                                                    {student.firstName} {student.lastName}
+                                                </p>
+                                                <p className="text-xs sm:text-sm text-gray-500 truncate">
+                                                    {student.grade} • {guardians[0]?.phone || 'N/A'}
+                                                </p>
+                                            </div>
                                         </div>
-                                        <div className="min-w-0 flex-1">
-                                            <p className="font-semibold text-gray-800 text-xs sm:text-base truncate">
-                                                {student.firstName} {student.lastName}
+                                        <div className="text-right flex-shrink-0">
+                                            <p className="text-sm sm:text-lg font-bold text-red-600 whitespace-nowrap">
+                                                KES {student.feeBalance.toLocaleString()}
                                             </p>
-                                            <p className="text-xs sm:text-sm text-gray-500 truncate">
-                                                {student.grade} • {student.guardians[0]?.phone}
+                                            <p className="text-xs text-gray-500 whitespace-nowrap">
+                                                {((student.feeBalance / student.totalFees) * 100).toFixed(0)}% remaining
                                             </p>
                                         </div>
                                     </div>
-                                    <div className="text-right flex-shrink-0">
-                                        <p className="text-sm sm:text-lg font-bold text-red-600 whitespace-nowrap">
-                                            KES {student.feeBalance.toLocaleString()}
-                                        </p>
-                                        <p className="text-xs text-gray-500 whitespace-nowrap">
-                                            {((student.feeBalance / student.totalFees) * 100).toFixed(0)}% remaining
-                                        </p>
-                                    </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     </CardContent>
                 </Card>

@@ -1,5 +1,8 @@
-import React, { useState } from 'react';
+"use client";
+
+import React, { useState, useEffect } from 'react';
 import { Plus, Search, Trash2, ArrowRightLeft } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -7,6 +10,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AddStudentDialog } from './add-student-dialog';
 import { Student } from '@/types';
+import { studentService } from '@/lib/appwrite/student.service';
+import { authService } from '@/lib/appwrite/auth.service';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -28,25 +33,10 @@ interface StudentsViewProps {
 // Kenya Curriculum - Competency Based Curriculum (CBC)
 const KENYA_CURRICULUM = {
     'All Classes': [],
-    'Early Years Education': [
-        'PP1 (Pre-Primary 1)',
-        'PP2 (Pre-Primary 2)'
-    ],
-    'Lower Primary': [
-        'Grade 1',
-        'Grade 2',
-        'Grade 3'
-    ],
-    'Upper Primary': [
-        'Grade 4',
-        'Grade 5',
-        'Grade 6'
-    ],
-    'Junior Secondary': [
-        'Grade 7',
-        'Grade 8',
-        'Grade 9'
-    ]
+    'Early Years Education': ['PP1 (Pre-Primary 1)', 'PP2 (Pre-Primary 2)'],
+    'Lower Primary': ['Grade 1', 'Grade 2', 'Grade 3'],
+    'Upper Primary': ['Grade 4', 'Grade 5', 'Grade 6'],
+    'Junior Secondary': ['Grade 7', 'Grade 8', 'Grade 9'],
 };
 
 export function StudentsView({ students, onAddStudent, onDeleteStudent, onTransferStudent }: StudentsViewProps) {
@@ -58,18 +48,53 @@ export function StudentsView({ students, onAddStudent, onDeleteStudent, onTransf
     const [transferDialogOpen, setTransferDialogOpen] = useState(false);
     const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
     const [transferToClass, setTransferToClass] = useState<string>('');
+    const [isLoading, setIsLoading] = useState(true);
+    const [apiStudents, setApiStudents] = useState<Student[]>([]);
+    const [error, setError] = useState('');
 
-    const availableClasses = selectedLevel === 'All Classes'
-        ? Object.values(KENYA_CURRICULUM).flat()
-        : KENYA_CURRICULUM[selectedLevel as keyof typeof KENYA_CURRICULUM] || [];
+    useEffect(() => {
+        fetchStudents();
+    }, []);
 
-    const filteredStudents = students.filter(student => {
+    const fetchStudents = async () => {
+        setIsLoading(true);
+        setError('');
+        try {
+            const user = await authService.getCurrentUser();
+            if (!user) {
+                setError('Please login to view students');
+                setIsLoading(false);
+                return;
+            }
+
+            const studentsData = await studentService.getStudents(user.$id);
+
+            const mappedStudents = studentsData.map(student => ({
+                ...student,
+                id: student.$id || student.$id,
+            }));
+
+            setApiStudents(mappedStudents);
+        } catch (error: any) {
+            console.error('Failed to fetch students:', error);
+            setError(error.message || 'Failed to load students');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const availableClasses =
+        selectedLevel === 'All Classes'
+            ? Object.values(KENYA_CURRICULUM).flat()
+            : KENYA_CURRICULUM[selectedLevel as keyof typeof KENYA_CURRICULUM] || [];
+
+    const studentsToDisplay = apiStudents.length > 0 ? apiStudents : students;
+
+    const filteredStudents = studentsToDisplay.filter(student => {
         const matchesSearch = `${student.firstName} ${student.lastName} ${student.admissionNumber}`
             .toLowerCase()
             .includes(searchTerm.toLowerCase());
-
         const matchesClass = selectedClass === 'All Classes' || student.grade === selectedClass;
-
         return matchesSearch && matchesClass;
     });
 
@@ -78,11 +103,22 @@ export function StudentsView({ students, onAddStudent, onDeleteStudent, onTransf
         setDeleteDialogOpen(true);
     };
 
-    const handleDeleteConfirm = () => {
-        if (selectedStudent && onDeleteStudent) {
-            onDeleteStudent(selectedStudent.id);
-            setDeleteDialogOpen(false);
-            setSelectedStudent(null);
+    const handleDeleteConfirm = async () => {
+        if (selectedStudent) {
+            try {
+                const studentId = selectedStudent.$id || selectedStudent.id;
+                await studentService.deleteStudent(studentId);
+                await fetchStudents();
+                onDeleteStudent?.(studentId);
+
+                toast.success('Student deleted successfully');
+            } catch (error: any) {
+                console.error('Failed to delete student:', error);
+                toast.error('Failed to delete student', { description: error.message });
+            } finally {
+                setDeleteDialogOpen(false);
+                setSelectedStudent(null);
+            }
         }
     };
 
@@ -92,13 +128,32 @@ export function StudentsView({ students, onAddStudent, onDeleteStudent, onTransf
         setTransferDialogOpen(true);
     };
 
-    const handleTransferConfirm = () => {
-        if (selectedStudent && transferToClass && onTransferStudent) {
-            onTransferStudent(selectedStudent.id, transferToClass);
-            setTransferDialogOpen(false);
-            setSelectedStudent(null);
-            setTransferToClass('');
+    const handleTransferConfirm = async () => {
+        if (selectedStudent && transferToClass) {
+            try {
+                const studentId = selectedStudent.$id || selectedStudent.id;
+                await studentService.transferStudent(studentId, transferToClass);
+                await fetchStudents();
+                onTransferStudent?.(studentId, transferToClass);
+
+                toast.success(`Student transferred to ${transferToClass} successfully`);
+            } catch (error: any) {
+                console.error('Failed to transfer student:', error);
+                toast.error('Failed to transfer student', { description: error.message });
+            } finally {
+                setTransferDialogOpen(false);
+                setSelectedStudent(null);
+                setTransferToClass('');
+            }
+        } else {
+            toast.error('Validation Error', { description: 'Please select a class to transfer to' });
         }
+    };
+
+    const handleAddStudent = async (student: any) => {
+        await fetchStudents();
+        onAddStudent(student);
+        toast.success('Student added successfully');
     };
 
     const allClasses = Object.values(KENYA_CURRICULUM).flat();
@@ -107,23 +162,25 @@ export function StudentsView({ students, onAddStudent, onDeleteStudent, onTransf
         <div className="p-2 sm:p-4">
             {/* Header */}
             <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-6 gap-3">
-                <h2 className="text-2xl sm:text-3xl font-bold text-gray-800 text-center sm:text-left">
-                    Students
-                </h2>
-                <Button
-                    onClick={() => setShowAddDialog(true)}
-                    className="bg-blue-600 hover:bg-blue-700 w-full sm:w-auto"
-                >
+                <h2 className="text-2xl sm:text-3xl font-bold text-gray-800 text-center sm:text-left">Students</h2>
+                <Button onClick={() => setShowAddDialog(true)} className="bg-blue-600 hover:bg-blue-700 w-full sm:w-auto">
                     <Plus size={20} className="mr-2" />
                     Add Student
                 </Button>
             </div>
 
+            {error && (
+                <Card className="mb-6 bg-red-50 border-red-200">
+                    <CardContent className="p-4">
+                        <p className="text-red-600">{error}</p>
+                    </CardContent>
+                </Card>
+            )}
+
             {/* Filters Section */}
             <Card className="mb-6">
                 <CardContent className="p-4">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        {/* Search */}
                         <div className="flex items-center border rounded-lg px-3 py-2">
                             <Search size={20} className="text-gray-400 mr-2" />
                             <Input
@@ -134,7 +191,6 @@ export function StudentsView({ students, onAddStudent, onDeleteStudent, onTransf
                             />
                         </div>
 
-                        {/* Level Filter */}
                         <div>
                             <Select
                                 value={selectedLevel}
@@ -156,7 +212,6 @@ export function StudentsView({ students, onAddStudent, onDeleteStudent, onTransf
                             </Select>
                         </div>
 
-                        {/* Class Filter */}
                         <div>
                             <Select value={selectedClass} onValueChange={setSelectedClass}>
                                 <SelectTrigger>
@@ -181,7 +236,7 @@ export function StudentsView({ students, onAddStudent, onDeleteStudent, onTransf
                 <Card>
                     <CardContent className="p-4">
                         <p className="text-sm text-gray-600">Total Students</p>
-                        <p className="text-xl sm:text-2xl font-bold text-gray-800">{students.length}</p>
+                        <p className="text-xl sm:text-2xl font-bold text-gray-800">{studentsToDisplay.length}</p>
                     </CardContent>
                 </Card>
                 <Card>
@@ -208,109 +263,130 @@ export function StudentsView({ students, onAddStudent, onDeleteStudent, onTransf
                 </Card>
             </div>
 
-            {/* Students Table */}
-            <Card>
-                <CardContent className="p-0">
-                    {filteredStudents.length === 0 ? (
-                        <div className="p-6 sm:p-8 text-center text-gray-500">
-                            <p className="text-base sm:text-lg">No students found.</p>
-                            <p className="text-xs sm:text-sm mt-2">Try adjusting your filters or add a new student.</p>
-                        </div>
-                    ) : (
-                        <div className="overflow-x-auto">
-                            <Table className="min-w-[700px] sm:min-w-full text-sm sm:text-base">
-                                <TableHeader>
-                                    <TableRow>
-                                        <TableHead>Admission No.</TableHead>
-                                        <TableHead>Student Name</TableHead>
-                                        <TableHead>Class</TableHead>
-                                        <TableHead>Guardian</TableHead>
-                                        <TableHead>Contact</TableHead>
-                                        <TableHead>Fee Balance</TableHead>
-                                        <TableHead>Total Fees</TableHead>
-                                        <TableHead className="text-right">Actions</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {filteredStudents.map(student => (
-                                        <TableRow key={student.id}>
-                                            <TableCell className="font-mono text-xs sm:text-sm font-semibold">
-                                                {student.admissionNumber}
-                                            </TableCell>
-                                            <TableCell className="font-medium">
-                                                {student.firstName} {student.lastName}
-                                            </TableCell>
-                                            <TableCell>
-                                                <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-semibold">
-                                                    {student.grade}
-                                                </span>
-                                            </TableCell>
-                                            <TableCell>
-                                                {student.guardians[0]?.name || 'N/A'}
-                                                <br />
-                                                <span className="text-xs text-gray-500">
-                                                    {student.guardians[0]?.relationship || ''}
-                                                </span>
-                                            </TableCell>
-                                            <TableCell className="text-xs sm:text-sm">
-                                                {student.guardians[0]?.phone || 'N/A'}
-                                            </TableCell>
-                                            <TableCell>
-                                                <span className={`font-semibold ${student.feeBalance > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                                                    KES {student.feeBalance.toLocaleString()}
-                                                </span>
-                                            </TableCell>
-                                            <TableCell>
-                                                KES {student.totalFees.toLocaleString()}
-                                            </TableCell>
-                                            <TableCell className="text-right">
-                                                <div className="flex flex-col sm:flex-row justify-end gap-2">
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        onClick={() => handleTransferClick(student)}
-                                                        className="text-blue-600 hover:text-blue-700"
-                                                    >
-                                                        <ArrowRightLeft size={16} className="mr-1" />
-                                                        Transfer
-                                                    </Button>
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        onClick={() => handleDeleteClick(student)}
-                                                        className="text-red-600 hover:text-red-700"
-                                                    >
-                                                        <Trash2 size={16} className="mr-1" />
-                                                        Delete
-                                                    </Button>
-                                                </div>
-                                            </TableCell>
+            {/* Loading / Table */}
+            {isLoading ? (
+                <Card>
+                    <CardContent className="p-8 text-center">
+                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                        <p className="text-gray-600">Loading students...</p>
+                    </CardContent>
+                </Card>
+            ) : (
+                <Card>
+                    <CardContent className="p-0">
+                        {filteredStudents.length === 0 ? (
+                            <div className="p-6 sm:p-8 text-center text-gray-500">
+                                <p className="text-base sm:text-lg">No students found.</p>
+                                <p className="text-xs sm:text-sm mt-2">
+                                    Try adjusting your filters or add a new student.
+                                </p>
+                            </div>
+                        ) : (
+                            <div className="overflow-x-auto">
+                                <Table className="min-w-[700px] sm:min-w-full text-sm sm:text-base">
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead>Admission No.</TableHead>
+                                            <TableHead>Student Name</TableHead>
+                                            <TableHead>Class</TableHead>
+                                            <TableHead>Guardian</TableHead>
+                                            <TableHead>Contact</TableHead>
+                                            <TableHead>Fee Balance</TableHead>
+                                            <TableHead>Total Fees</TableHead>
+                                            <TableHead className="text-right">Actions</TableHead>
                                         </TableRow>
-                                    ))}
-                                </TableBody>
-                            </Table>
-                        </div>
-                    )}
-                </CardContent>
-            </Card>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {filteredStudents.map(student => {
+                                            const studentId = student.$id || student.id;
+                                            const guardians =
+                                                typeof student.guardians === 'string'
+                                                    ? JSON.parse(student.guardians)
+                                                    : student.guardians;
 
-            {/* Add Student Dialog */}
-            <AddStudentDialog
-                open={showAddDialog}
-                onOpenChange={setShowAddDialog}
-                onAdd={onAddStudent}
-            />
+                                            return (
+                                                <TableRow key={studentId}>
+                                                    <TableCell className="font-mono text-xs sm:text-sm font-semibold">
+                                                        {student.admissionNumber}
+                                                    </TableCell>
+                                                    <TableCell className="font-medium">
+                                                        {student.firstName} {student.lastName}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-semibold">
+                                                            {student.grade}
+                                                        </span>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        {guardians[0]?.name || 'N/A'}
+                                                        <br />
+                                                        <span className="text-xs text-gray-500">
+                                                            {guardians[0]?.relationship || ''}
+                                                        </span>
+                                                    </TableCell>
+                                                    <TableCell className="text-xs sm:text-sm">
+                                                        {guardians[0]?.phone || 'N/A'}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <span
+                                                            className={`font-semibold ${student.feeBalance > 0
+                                                                    ? 'text-red-600'
+                                                                    : 'text-green-600'
+                                                                }`}
+                                                        >
+                                                            KES {student.feeBalance.toLocaleString()}
+                                                        </span>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        KES {student.totalFees.toLocaleString()}
+                                                    </TableCell>
+                                                    <TableCell className="text-right">
+                                                        <div className="flex flex-col sm:flex-row justify-end gap-2">
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                onClick={() => handleTransferClick(student)}
+                                                                className="text-blue-600 hover:text-blue-700"
+                                                            >
+                                                                <ArrowRightLeft size={16} className="mr-1" />
+                                                                Transfer
+                                                            </Button>
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                onClick={() => handleDeleteClick(student)}
+                                                                className="text-red-600 hover:text-red-700"
+                                                            >
+                                                                <Trash2 size={16} className="mr-1" />
+                                                                Delete
+                                                            </Button>
+                                                        </div>
+                                                    </TableCell>
+                                                </TableRow>
+                                            );
+                                        })}
+                                    </TableBody>
+                                </Table>
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+            )}
 
-            {/* Delete Confirmation Dialog */}
+            <AddStudentDialog open={showAddDialog} onOpenChange={setShowAddDialog} onAdd={handleAddStudent} />
+
             <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
                         <AlertDialogTitle>Delete Student</AlertDialogTitle>
                         <AlertDialogDescription>
-                            Are you sure you want to delete <strong>{selectedStudent?.firstName} {selectedStudent?.lastName}</strong>?
-                            <br />
-                            <br />
-                            This action cannot be undone. All student records, payment history, and associated data will be permanently deleted.
+                            Are you sure you want to delete{' '}
+                            <strong>
+                                {selectedStudent?.firstName} {selectedStudent?.lastName}
+                            </strong>
+                            ?<br />
+                            This action cannot be undone. All student records, payment history, and associated
+                            data will be permanently deleted.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
@@ -325,13 +401,16 @@ export function StudentsView({ students, onAddStudent, onDeleteStudent, onTransf
                 </AlertDialogContent>
             </AlertDialog>
 
-            {/* Transfer Student Dialog */}
             <AlertDialog open={transferDialogOpen} onOpenChange={setTransferDialogOpen}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
                         <AlertDialogTitle>Transfer Student</AlertDialogTitle>
                         <AlertDialogDescription>
-                            Transfer <strong>{selectedStudent?.firstName} {selectedStudent?.lastName}</strong> from <strong>{selectedStudent?.grade}</strong> to:
+                            Transfer{' '}
+                            <strong>
+                                {selectedStudent?.firstName} {selectedStudent?.lastName}
+                            </strong>{' '}
+                            from <strong>{selectedStudent?.grade}</strong> to:
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <div className="py-4">

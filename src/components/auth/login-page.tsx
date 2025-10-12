@@ -1,18 +1,20 @@
+'use client';
+
 import React, { useState } from 'react';
+import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { BookOpen, Lock, Mail, AlertCircle } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { BookOpen, Lock, Mail, AlertCircle, UserCog } from 'lucide-react';
+import { authService } from '@/lib/appwrite/auth.service';
 
-interface LoginPageProps {
-    onLogin: (email: string, password: string) => void;
-}
-
-export function LoginPage({ onLogin }: LoginPageProps) {
+export function LoginPage() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [role, setRole] = useState('admin');
     const [error, setError] = useState('');
     const [isLoading, setIsLoading] = useState(false);
 
@@ -34,14 +36,42 @@ export function LoginPage({ onLogin }: LoginPageProps) {
             return;
         }
 
-        try {
-            // Simulate API call
-            await new Promise(resolve => setTimeout(resolve, 1000));
+        if (!role) {
+            setError('Please select your role');
+            setIsLoading(false);
+            return;
+        }
 
-            // Call the login handler
-            onLogin(email, password);
-        } catch (err) {
-            setError('Login failed. Please try again.');
+        try {
+            console.log('Starting login...', { email, role });
+
+            // Login directly with auth service
+            await authService.login({ email, password });
+            console.log('Login successful, checking user...');
+
+            // Get current user
+            const user = await authService.getCurrentUser();
+            console.log('User retrieved:', user);
+
+            if (user) {
+                // Get user profile to check role
+                const userProfile = await authService.getUserProfile(user.$id);
+                console.log('User profile:', userProfile);
+
+                // Verify role matches
+                if (userProfile.role !== role) {
+                    await authService.logout();
+                    throw new Error(`You are not authorized to login as ${role}. Your role is ${userProfile.role}.`);
+                }
+            }
+
+            console.log('Role verified, redirecting to home...');
+
+            // Use window.location for a hard redirect (ensures new page load)
+            window.location.href = '/';
+        } catch (err: any) {
+            console.error('Login error:', err);
+            setError(err.message || 'Login failed. Please try again.');
         } finally {
             setIsLoading(false);
         }
@@ -76,6 +106,28 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                                 </Alert>
                             )}
 
+                            {/* Role Selection */}
+                            <div className="space-y-2">
+                                <Label htmlFor="role">Login As</Label>
+                                <div className="relative">
+                                    <UserCog className="absolute left-3 top-3 h-4 w-4 text-gray-400 z-10" />
+                                    <Select
+                                        value={role}
+                                        onValueChange={setRole}
+                                        disabled={isLoading}
+                                    >
+                                        <SelectTrigger className="pl-10">
+                                            <SelectValue placeholder="Select your role" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="admin">Administrator</SelectItem>
+                                            <SelectItem value="director">Director</SelectItem>
+                                            <SelectItem value="accountant">Accountant</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            </div>
+
                             <div className="space-y-2">
                                 <Label htmlFor="email">Email Address</Label>
                                 <div className="relative">
@@ -88,6 +140,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                                         onChange={(e) => setEmail(e.target.value)}
                                         className="pl-10"
                                         disabled={isLoading}
+                                        autoComplete="email"
                                     />
                                 </div>
                             </div>
@@ -104,6 +157,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                                         onChange={(e) => setPassword(e.target.value)}
                                         className="pl-10"
                                         disabled={isLoading}
+                                        autoComplete="current-password"
                                     />
                                 </div>
                             </div>
@@ -120,6 +174,19 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                         <div className="mt-6 text-center text-sm text-gray-500">
                             <p>Account created by system administrator</p>
                             <p className="mt-1">Contact support if you need assistance</p>
+                        </div>
+
+                        {/* Register Link */}
+                        <div className="mt-4 pt-4 border-t border-gray-200">
+                            <p className="text-center text-sm text-gray-600">
+                                Need to register a new school?{' '}
+                                <Link
+                                    href="/register"
+                                    className="text-blue-600 hover:text-blue-700 font-medium hover:underline"
+                                >
+                                    Create an account
+                                </Link>
+                            </p>
                         </div>
                     </CardContent>
                 </Card>

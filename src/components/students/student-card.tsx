@@ -7,6 +7,11 @@ interface StudentCardProps {
 }
 
 export function StudentCard({ student }: StudentCardProps) {
+    // Parse guardians if it's a string
+    const guardians = typeof student.guardians === 'string'
+        ? JSON.parse(student.guardians)
+        : student.guardians;
+
     return (
         <Card>
             <CardContent className="p-6">
@@ -20,7 +25,7 @@ export function StudentCard({ student }: StudentCardProps) {
 
                         <div className="mt-4">
                             <p className="font-semibold text-gray-700">Guardian Information:</p>
-                            {student.guardians.map(guardian => (
+                            {guardians.map((guardian: any) => (
                                 <div key={guardian.id} className="mt-2 text-sm">
                                     <p className="text-gray-700">{guardian.name} ({guardian.relationship})</p>
                                     <p className="text-gray-600">{guardian.phone} • {guardian.email}</p>

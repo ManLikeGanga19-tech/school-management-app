@@ -1,315 +1,226 @@
-"use client"
+"use client";
 
-import React, { useState, useEffect } from 'react';
-import { Sidebar } from '@/components/ui/sidebar';
-import { LoginPage } from '@/components/auth/login-page';
-import { DashboardView } from '@/components/dashboard/dashboard-view';
-import { StudentsView } from '@/components/students/students-view';
-import { PaymentsView } from '@/components/payments/payments-view';
-import { SMSView } from '@/components/sms/sms-view';
-import { Student, FeePayment, View } from '@/types';
-import { loginUser, saveAuthToken, removeAuthToken, isAuthenticated, logoutUser, verifySession, User } from '@/lib/auth';
+import React, { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { Sidebar } from "@/components/ui/sidebar";
+import { DashboardView } from "@/components/dashboard/dashboard-view";
+import { StudentsView } from "@/components/students/students-view";
+import { PaymentsView } from "@/components/payments/payments-view";
+import { SMSView } from "@/components/sms/sms-view";
 
-export default function SchoolManagementApp() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [currentView, setCurrentView] = useState<View>('dashboard');
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [isLoading, setIsLoading] = useState(true);
+import { authService } from "@/lib/appwrite/auth.service";
+import { studentService } from "@/lib/appwrite/student.service";
+import { paymentService } from "@/lib/appwrite/payment.service";
 
-  // Check authentication on mount and verify with backend
+import type { StudentDocument } from "@/lib/appwrite/student.service";
+import type { PaymentDocument } from "@/lib/appwrite/payment.service";
+import type { Student, FeePayment, View } from "@/types";
+import { toast } from "sonner";
+
+export default function SchoolManagementPage() {
+  const router = useRouter();
+
+  const [user, setUser] = useState<any | null>(null);
+  const [profile, setProfile] = useState<any | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+
+  const [students, setStudents] = useState<Student[]>([]);
+  const [payments, setPayments] = useState<FeePayment[]>([]);
+
+  const [currentView, setCurrentView] = useState<View>("dashboard");
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(true);
+
+  // ---------- Helpers ----------
+  const mapStudentDocToStudent = (doc: StudentDocument): Student => {
+    const guardians =
+      typeof (doc as any).guardians === "string"
+        ? JSON.parse((doc as any).guardians)
+        : ((doc as any).guardians as any) || [];
+
+    return {
+      id: doc.$id,
+      $id: doc.$id,
+      userId: (doc as any).userId,
+      firstName: (doc as any).firstName,
+      lastName: (doc as any).lastName,
+      grade: (doc as any).grade,
+      admissionNumber: (doc as any).admissionNumber,
+      dateOfBirth: (doc as any).dateOfBirth,
+      guardians,
+      feeBalance: (doc as any).feeBalance ?? 0,
+      totalFees: (doc as any).totalFees ?? 0,
+      paidFees: (doc as any).paidFees ?? 0,
+      createdAt: (doc as any).createdAt ?? doc.$createdAt,
+      $createdAt: doc.$createdAt,
+      $updatedAt: doc.$updatedAt,
+    };
+  };
+
+  const mapPaymentDocToFeePayment = (doc: PaymentDocument): FeePayment => ({
+    id: doc.$id,
+    $id: doc.$id,
+    studentId: (doc as any).studentId,
+    studentName: (doc as any).studentName,
+    studentClass: (doc as any).studentClass,
+    parentName: (doc as any).parentName,
+    parentPhone: (doc as any).parentPhone,
+    amount: (doc as any).amount ?? 0,
+    date: (doc as any).date,
+    time: (doc as any).time,
+    paymentMethod: (doc as any).paymentMethod,
+    mpesaCode: (doc as any).mpesaCode ?? "",
+    receiptNumber: (doc as any).receiptNumber ?? "",
+    createdAt: (doc as any).createdAt ?? doc.$createdAt,
+    $createdAt: doc.$createdAt,
+    $updatedAt: doc.$updatedAt,
+  });
+
+  // ---------- Init ----------
   useEffect(() => {
-    const checkAuth = async () => {
-      if (isAuthenticated()) {
-        // Verify session with backend
-        const result = await verifySession();
-        if (result.success && result.user) {
-          setCurrentUser(result.user);
-          setIsLoggedIn(true);
-        } else {
-          // Session invalid, clear local storage
-          removeAuthToken();
-          setIsLoggedIn(false);
+    let mounted = true;
+
+    const init = async () => {
+      try {
+        const currentUser = await authService.getCurrentUser();
+        if (!currentUser) {
+          router.push("/login");
+          return;
         }
+        if (!mounted) return;
+
+        setUser(currentUser);
+
+        try {
+          const userProfile = await authService.getUserProfile(currentUser.$id);
+          if (mounted) setProfile(userProfile);
+        } catch (err) {
+          console.error("Failed to load profile:", err);
+        }
+
+        const [rawStudents, rawPayments] = await Promise.all([
+          studentService.getStudents(currentUser.$id),
+          paymentService.getPayments(currentUser.$id),
+        ]);
+
+        if (!mounted) return;
+
+        const fetchedStudents = (rawStudents || []).map(
+          (s: unknown) => s as unknown as StudentDocument
+        );
+        const fetchedPayments = (rawPayments || []).map(
+          (p: unknown) => p as unknown as PaymentDocument
+        );
+
+        setStudents(fetchedStudents.map(mapStudentDocToStudent));
+        setPayments(fetchedPayments.map(mapPaymentDocToFeePayment));
+      } catch (error) {
+        console.error("Initialization error:", error);
+        router.push("/login");
+      } finally {
+        if (mounted) setIsLoading(false);
       }
-      setIsLoading(false);
     };
 
-    checkAuth();
-  }, []);
+    init();
+    return () => {
+      mounted = false;
+    };
+  }, [router]);
 
-  const [students, setStudents] = useState<Student[]>([
-    {
-      id: '1',
-      firstName: 'John',
-      lastName: 'Doe',
-      grade: 'Grade 7',
-      admissionNumber: 'STU001',
-      dateOfBirth: '2008-05-15',
-      guardians: [{
-        id: 'g1',
-        name: 'Jane Doe',
-        phone: '+254712345678',
-        email: 'jane.doe@email.com',
-        relationship: 'Mother'
-      }],
-      feeBalance: 15000,
-      totalFees: 50000,
-      paidFees: 35000
-    },
-    {
-      id: '2',
-      firstName: 'Mary',
-      lastName: 'Smith',
-      grade: 'Grade 9',
-      admissionNumber: 'STU002',
-      dateOfBirth: '2009-08-22',
-      guardians: [{
-        id: 'g2',
-        name: 'Robert Smith',
-        phone: '+254723456789',
-        email: 'robert.smith@email.com',
-        relationship: 'Father'
-      }],
-      feeBalance: 0,
-      totalFees: 50000,
-      paidFees: 50000
-    },
-    {
-      id: '3',
-      firstName: 'Kevin',
-      lastName: 'Mwangi',
-      grade: 'PP1 (Pre-Primary 1)',
-      admissionNumber: 'STU003',
-      dateOfBirth: '2020-03-12',
-      guardians: [{
-        id: 'g3',
-        name: 'Grace Mwangi',
-        phone: '+254734567890',
-        email: 'grace.mwangi@email.com',
-        relationship: 'Mother'
-      }],
-      feeBalance: 5000,
-      totalFees: 30000,
-      paidFees: 25000
-    }
-  ]);
-
-  const [payments, setPayments] = useState<FeePayment[]>([
-    {
-      id: 'p1',
-      studentId: '1',
-      studentName: 'John Doe',
-      studentClass: 'Grade 7',
-      parentName: 'Jane Doe',
-      parentPhone: '+254712345678',
-      amount: 20000,
-      date: '2025-09-15',
-      time: '10:30',
-      paymentMethod: 'Kcb M-Pesa',
-      mpesaCode: 'MP123XYZ',
-      receiptNumber: 'RCP001'
-    }
-  ]);
-
-  const handleLogin = async (email: string, password: string) => {
-    const result = await loginUser(email, password);
-
-    if (result.success && result.token && result.user) {
-      saveAuthToken(result.token);
-      setCurrentUser(result.user);
-      setIsLoggedIn(true);
-    } else {
-      alert(result.error || 'Login failed');
-    }
-  };
-
+  // ---------- Handlers ----------
   const handleLogout = async () => {
-    await logoutUser();
-    setCurrentUser(null);
-    setIsLoggedIn(false);
-    setCurrentView('dashboard');
-  };
-
-  const handleAddStudent = (formData: any) => {
-    const student: Student = {
-      id: Date.now().toString(),
-      firstName: formData.firstName,
-      lastName: formData.lastName,
-      grade: formData.grade,
-      admissionNumber: formData.admissionNumber,
-      dateOfBirth: formData.dateOfBirth,
-      guardians: [{
-        id: Date.now().toString(),
-        name: formData.guardianName,
-        phone: formData.guardianPhone,
-        email: formData.guardianEmail,
-        relationship: formData.relationship
-      }],
-      totalFees: parseFloat(formData.totalFees),
-      paidFees: 0,
-      feeBalance: parseFloat(formData.totalFees)
-    };
-
-    setStudents([...students, student]);
-    alert(`Student ${formData.firstName} ${formData.lastName} added successfully!`);
-  };
-
-  const handleDeleteStudent = (studentId: string) => {
-    const student = students.find(s => s.id === studentId);
-
-    // Remove student from students array
-    setStudents(students.filter(s => s.id !== studentId));
-
-    // Also remove associated payments
-    setPayments(payments.filter(p => p.studentId !== studentId));
-
-    if (student) {
-      alert(`Student ${student.firstName} ${student.lastName} has been deleted successfully.`);
+    try {
+      await authService.logout();
+      setUser(null);
+      router.push("/login");
+      toast.success("Logged out", {
+        description: "You have been logged out successfully.",
+      });
+    } catch (error: any) {
+      console.error("Logout failed:", error);
+      toast.error("Logout failed", {
+        description: error?.message ?? String(error),
+      });
     }
   };
 
-  const handleTransferStudent = (studentId: string, newClass: string) => {
-    const student = students.find(s => s.id === studentId);
-    const oldClass = student?.grade;
-
-    // Update student's grade/class
-    setStudents(students.map(s =>
-      s.id === studentId ? { ...s, grade: newClass } : s
-    ));
-
-    // Update class in all associated payments
-    setPayments(payments.map(p =>
-      p.studentId === studentId ? { ...p, studentClass: newClass } : p
-    ));
-
-    if (student) {
-      alert(`${student.firstName} ${student.lastName} transferred from ${oldClass} to ${newClass} successfully!`);
-    }
+  // ---------- SMS Handler ----------
+  const handleSendSMS = async (selectedIds: string[], message: string) => {
+    const recipients =
+      selectedIds.length > 0
+        ? students.filter((s) => selectedIds.includes(s.id))
+        : students.filter((s) => s.feeBalance > 0);
+    toast.success("SMS Sent (Mock)", {
+      description: `Message sent to ${recipients.length} guardian(s).`,
+    });
   };
 
-  const handleAddPayment = (formData: any) => {
-    console.log('Received from dialog:', formData);
-
-    const student = students.find(s => s.id === formData.studentId);
-    if (!student) {
-      alert('Student not found');
-      return;
-    }
-
-    // Generate receipt number
-    const receiptNumber = `RCP${Date.now().toString().slice(-6)}`;
-
-    // Create payment object using data from dialog
-    const payment: FeePayment = {
-      id: Date.now().toString(),
-      studentId: formData.studentId,
-      studentName: formData.studentName,
-      studentClass: formData.studentClass,
-      parentName: formData.parentName,
-      parentPhone: formData.parentPhone,
-      mpesaCode: formData.mpesaCode || '',
-      amount: parseFloat(formData.amount),
-      date: formData.date,
-      time: formData.time,
-      paymentMethod: formData.paymentMethod || 'Kcb M-Pesa',
-      receiptNumber: receiptNumber
-    };
-
-    console.log('Created payment:', payment);
-
-    // Add to beginning of payments array (newest first)
-    setPayments([payment, ...payments]);
-
-    // Update student balance
-    setStudents(students.map(s => {
-      if (s.id === formData.studentId) {
-        const newPaid = s.paidFees + parseFloat(formData.amount);
-        return {
-          ...s,
-          paidFees: newPaid,
-          feeBalance: s.totalFees - newPaid
-        };
-      }
-      return s;
-    }));
-
-    alert(`Payment Recorded Successfully!\n\nReceipt: ${receiptNumber}\nStudent: ${formData.studentName}\nAmount: KES ${parseFloat(formData.amount).toLocaleString()}`);
-  };
-
-  const handleSendSMS = (selectedIds: string[], message: string) => {
-    const recipients = selectedIds.length > 0
-      ? students.filter(s => selectedIds.includes(s.id))
-      : students.filter(s => s.feeBalance > 0);
-
-    alert(`SMS would be sent to ${recipients.length} guardian(s):\n\n${message}\n\nIntegrate with SMS gateway API (Africa's Talking, Twilio, etc.)`);
-  };
-
-  // Show loading state
   if (isLoading) {
     return (
       <div className="flex h-screen items-center justify-center bg-gray-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading...</p>
+          <p className="text-gray-600">Loading your school data...</p>
         </div>
       </div>
     );
   }
 
-  // Show login page if not authenticated
-  if (!isLoggedIn) {
-    return <LoginPage onLogin={handleLogin} />;
-  }
+  if (!user) return null;
 
-  // Show main application
+  // ---------- Render ----------
   return (
-    <div className="flex h-screen bg-gray-50">
-      <Sidebar
-        currentView={currentView}
-        onViewChange={setCurrentView}
-        isOpen={sidebarOpen}
-        onToggle={() => setSidebarOpen(!sidebarOpen)}
-        onLogout={handleLogout}
-      />
+    <>
+      <div className="flex h-screen bg-gray-50">
+        <Sidebar
+          currentView={currentView}
+          onViewChange={setCurrentView}
+          isOpen={sidebarOpen}
+          onToggle={() => setSidebarOpen(!sidebarOpen)}
+          onLogout={handleLogout}
+        />
 
-      <div className="flex-1 overflow-auto">
-        <div className="p-8">
-          {/* User Info Banner */}
-          {currentUser && (
-            <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
-              <p className="text-sm text-blue-800">
-                <strong>Logged in as:</strong> {currentUser.name} ({currentUser.email}) • <strong>School:</strong> {currentUser.schoolName}
-              </p>
-            </div>
-          )}
+        <div className="flex-1 overflow-auto">
+          <div className="p-8">
+            {currentView === "dashboard" && (
+              <DashboardView
+                students={students}
+                payments={payments}
+                currentUser={
+                  profile
+                    ? {
+                      name: profile.name,
+                      schoolName: profile.schoolName,
+                      role: profile.role,
+                    }
+                    : null
+                }
+              />
+            )}
 
-          {currentView === 'dashboard' && (
-            <DashboardView students={students} payments={payments} />
-          )}
+            {currentView === "students" && (
+              <StudentsView
+                students={students}
+                // ✅ Disable adding here — handled only by AddStudentDialog
+                onAddStudent={() => { }}
+              />
+            )}
 
-          {currentView === 'students' && (
-            <StudentsView
-              students={students}
-              onAddStudent={handleAddStudent}
-              onDeleteStudent={handleDeleteStudent}
-              onTransferStudent={handleTransferStudent}
-            />
-          )}
+            {currentView === "payments" && (
+              <PaymentsView
+                students={students}
+                payments={payments}
+                // ✅ Disable adding here — handled only by AddPaymentDialog
+                onAddPayment={() => { }}
+              />
+            )}
 
-          {currentView === 'payments' && (
-            <PaymentsView
-              students={students}
-              payments={payments}
-              onAddPayment={handleAddPayment}
-            />
-          )}
-
-          {currentView === 'sms' && (
-            <SMSView students={students} onSendSMS={handleSendSMS} />
-          )}
+            {currentView === "sms" && (
+              <SMSView students={students} onSendSMS={handleSendSMS} />
+            )}
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }
