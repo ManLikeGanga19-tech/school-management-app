@@ -30,6 +30,13 @@ export function SMSView({ students, onSendSMS }: SMSViewProps) {
         setSelectedStudents([]);
     };
 
+    // ✅ Helper to safely get guardian phone number
+    const getGuardianPhone = (student: any) => {
+        if (!student.guardians || student.guardians.length === 0) return '';
+        const guardian = student.guardians[0];
+        return typeof guardian === 'object' ? guardian.phone || '' : '';
+    };
+
     return (
         <div className="p-2 sm:p-4">
             {/* Header */}
@@ -69,7 +76,7 @@ export function SMSView({ students, onSendSMS }: SMSViewProps) {
                                             {student.firstName} {student.lastName}
                                         </p>
                                         <p className="text-xs sm:text-sm text-gray-600">
-                                            {student.guardians[0]?.phone}
+                                            {getGuardianPhone(student)}
                                         </p>
                                     </div>
                                 </div>
