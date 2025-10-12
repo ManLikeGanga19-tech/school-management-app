@@ -69,6 +69,7 @@ export function AddStudentDialog({ open, onOpenChange, onAdd }: AddStudentDialog
         setError('');
         setIsLoading(true);
 
+        
         // Validation
         if (
             !formData.firstName ||
