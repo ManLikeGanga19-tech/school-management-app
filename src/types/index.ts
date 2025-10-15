@@ -1,3 +1,8 @@
+// ============================================
+// FILE: types/index.ts
+// Fixed Type Definitions
+// ============================================
+
 export interface Guardian {
     id: string;
     name: string;
@@ -15,7 +20,7 @@ export interface Student {
     grade: string;
     admissionNumber: string;
     dateOfBirth: string;
-    guardians: Guardian[] | string; // Can be array or JSON string from Appwrite
+    guardians: Guardian[]; // Always array after parsing
     feeBalance: number;
     totalFees: number;
     paidFees: number;
@@ -29,18 +34,18 @@ export interface FeePayment {
     $id?: string; // Appwrite document ID
     studentId: string;
     studentName: string;
-    studentClass: string;      // Student's grade/class
-    parentName: string;         // Guardian's name
-    parentPhone: string;        // Guardian's phone number
+    studentClass: string;
+    parentName: string;
+    parentPhone: string;
     amount: number;
     date: string;
-    time: string;               // Payment time
+    time: string;
     paymentMethod: string;
-    mpesaCode: string;          // M-Pesa transaction code
+    mpesaCode: string;
     receiptNumber: string;
     createdAt?: string;
-    $createdAt?: string; // Appwrite timestamp
-    $updatedAt?: string; // Appwrite timestamp
+    $createdAt?: string;
+    $updatedAt?: string;
 }
 
 export type View = 'dashboard' | 'students' | 'payments' | 'sms';

@@ -6,7 +6,7 @@ import { Sidebar } from "@/components/ui/sidebar";
 import { DashboardView } from "@/components/dashboard/dashboard-view";
 import { StudentsView } from "@/components/students/students-view";
 import { PaymentsView } from "@/components/payments/payments-view";
-import { SMSView } from "@/components/sms/sms-view";
+import { SMSView } from "@/components/sms/sms-view"; // Named import
 
 import { authService } from "@/lib/appwrite/auth.service";
 import { studentService } from "@/lib/appwrite/student.service";
@@ -32,6 +32,7 @@ export default function SchoolManagementPage() {
 
   // ---------- Helpers ----------
   const mapStudentDocToStudent = (doc: StudentDocument): Student => {
+    // Parse guardians if it's a string
     const guardians =
       typeof (doc as any).guardians === "string"
         ? JSON.parse((doc as any).guardians)
@@ -46,7 +47,7 @@ export default function SchoolManagementPage() {
       grade: (doc as any).grade,
       admissionNumber: (doc as any).admissionNumber,
       dateOfBirth: (doc as any).dateOfBirth,
-      guardians,
+      guardians: Array.isArray(guardians) ? guardians : [], // Ensure it's an array
       feeBalance: (doc as any).feeBalance ?? 0,
       totalFees: (doc as any).totalFees ?? 0,
       paidFees: (doc as any).paidFees ?? 0,
@@ -144,15 +145,48 @@ export default function SchoolManagementPage() {
     }
   };
 
-  // ---------- SMS Handler ----------
-  const handleSendSMS = async (selectedIds: string[], message: string) => {
+  // ---------- SMS Handler with message type support ----------
+  const handleSendSMS = async (
+    selectedIds: string[],
+    message: string,
+    messageType?: 'fee' | 'general'
+  ) => {
+    // Get recipients based on selection and message type
     const recipients =
       selectedIds.length > 0
         ? students.filter((s) => selectedIds.includes(s.id))
-        : students.filter((s) => s.feeBalance > 0);
-    toast.success("SMS Sent (Mock)", {
-      description: `Message sent to ${recipients.length} guardian(s).`,
+        : messageType === 'fee'
+          ? students.filter((s) => s.feeBalance > 0)
+          : students;
+
+    // Replace variables in the message for each student
+    const personalizedMessages = recipients.map(student => {
+      const guardian = student.guardians[0];
+      let personalizedMsg = message
+        .replace(/\[StudentName\]/g, `${student.firstName} ${student.lastName}`)
+        .replace(/\[Class\]/g, student.grade)
+        .replace(/\[Balance\]/g, student.feeBalance.toString());
+
+      return {
+        phone: guardian?.phone || '',
+        message: personalizedMsg,
+        studentName: `${student.firstName} ${student.lastName}`
+      };
     });
+
+    console.log('SMS Details:', {
+      messageType: messageType || 'general',
+      recipientCount: recipients.length,
+      messages: personalizedMessages
+    });
+
+    toast.success("SMS Ready to Send", {
+      description: `${recipients.length} message(s) prepared. Integrate Africa's Talking to send.`,
+    });
+
+    // TODO: Integrate with Africa's Talking API here
+    // Example:
+    // await smsService.sendBulkSMS(personalizedMessages);
   };
 
   if (isLoading) {
@@ -182,26 +216,25 @@ export default function SchoolManagementPage() {
 
         <div className="flex-1 overflow-auto">
           <div className="p-8">
+            {/* User Info Banner */}
+            {profile && (
+              <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                <p className="text-sm text-blue-800">
+                  <strong>Welcome:</strong> {profile.name} • <strong>School:</strong> {profile.schoolName}
+                </p>
+              </div>
+            )}
+
             {currentView === "dashboard" && (
               <DashboardView
                 students={students}
                 payments={payments}
-                currentUser={
-                  profile
-                    ? {
-                      name: profile.name,
-                      schoolName: profile.schoolName,
-                      role: profile.role,
-                    }
-                    : null
-                }
               />
             )}
 
             {currentView === "students" && (
               <StudentsView
                 students={students}
-                // ✅ Disable adding here — handled only by AddStudentDialog
                 onAddStudent={() => { }}
               />
             )}
@@ -210,13 +243,15 @@ export default function SchoolManagementPage() {
               <PaymentsView
                 students={students}
                 payments={payments}
-                // ✅ Disable adding here — handled only by AddPaymentDialog
                 onAddPayment={() => { }}
               />
             )}
 
             {currentView === "sms" && (
-              <SMSView students={students} onSendSMS={handleSendSMS} />
+              <SMSView
+                students={students}
+                onSendSMS={handleSendSMS}
+              />
             )}
           </div>
         </div>

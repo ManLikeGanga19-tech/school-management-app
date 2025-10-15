@@ -67,10 +67,35 @@ export function AddPaymentDialog({ open, onOpenChange, students, onAdd }: AddPay
         }
     };
 
+    // ✅ SMS sender function (sandbox-safe)
+    const sendSmsNotification = async (phone: string, message: string) => {
+        try {
+            const res = await fetch('/api/sms', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    numbers: [phone],
+                    message,
+                }),
+            });
+
+            const data = await res.json();
+
+            if (!res.ok) {
+                console.error('SMS error:', data);
+                toast.error('SMS Failed', { description: data.error || 'Could not send SMS' });
+            } else {
+                toast.success('SMS Sent', { description: 'Notification sent to guardian successfully' });
+            }
+        } catch (err: any) {
+            console.error('Error sending SMS:', err);
+            toast.error('SMS Error', { description: err.message });
+        }
+    };
+
     const handleSubmit = async () => {
         setError('');
 
-        // ✅ Validation using sonner toast only
         if (!formData.studentId) {
             toast.error('Validation Error', { description: 'Please select a student' });
             return;
@@ -123,7 +148,8 @@ export function AddPaymentDialog({ open, onOpenChange, students, onAdd }: AddPay
 
             console.log('Payment created:', payment);
 
-            await studentService.updateStudentFees(formData.studentId, parseFloat(formData.amount));
+            // ✅ Update student's fee balance
+            const updatedStudent = await studentService.updateStudentFees(formData.studentId, parseFloat(formData.amount));
 
             toast.dismiss(loadingToast);
 
@@ -138,6 +164,17 @@ export function AddPaymentDialog({ open, onOpenChange, students, onAdd }: AddPay
                 ),
                 duration: 6000,
             });
+
+            // ✅ Send SMS notification to guardian after successful payment
+            const successMessage = `Dear ${formData.parentName}, your payment of KES ${formData.amount} for ${formData.studentName} (${formData.studentClass}) has been received successfully. Thank you!`;
+            await sendSmsNotification(formData.parentPhone, successMessage);
+
+            // ✅ If fee balance exceeds 10,000, send alert
+            const newBalance = updatedStudent?.feeBalance ?? selectedStudent?.feeBalance ?? 0;
+            if (newBalance > 10000) {
+                const balanceMessage = `Dear ${formData.parentName}, the current fee balance for ${formData.studentName} is KES ${newBalance.toLocaleString()}. Please clear the balance soon.`;
+                await sendSmsNotification(formData.parentPhone, balanceMessage);
+            }
 
             onAdd(payment);
 
