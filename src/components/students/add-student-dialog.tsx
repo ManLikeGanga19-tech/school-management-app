@@ -6,17 +6,24 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Card, CardContent } from '@/components/ui/card';
 import { studentService } from '@/lib/appwrite/student.service';
 import { authService } from '@/lib/appwrite/auth.service';
 import { toast } from 'sonner';
+import { Student, StudentType, getFeeStructure } from '@/types';
+import { Info } from 'lucide-react';
 
 interface AddStudentDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     onAdd: (student: any) => void;
+    student?: Student | null;
+    isUpdate?: boolean;
 }
 
 const KENYA_CLASSES = [
+    'Daycare',
     'PP1 (Pre-Primary 1)',
     'PP2 (Pre-Primary 2)',
     'Grade 1',
@@ -27,7 +34,6 @@ const KENYA_CLASSES = [
     'Grade 6',
     'Grade 7',
     'Grade 8',
-    'Grade 9',
 ];
 
 const RELATIONSHIPS = [
@@ -41,7 +47,9 @@ const RELATIONSHIPS = [
     'Other',
 ];
 
-export function AddStudentDialog({ open, onOpenChange, onAdd }: AddStudentDialogProps) {
+export function AddStudentDialog({ open, onOpenChange, onAdd, student, isUpdate }: AddStudentDialogProps) {
+    const currentYear = new Date().getFullYear();
+
     const [formData, setFormData] = useState({
         firstName: '',
         lastName: '',
@@ -52,16 +60,60 @@ export function AddStudentDialog({ open, onOpenChange, onAdd }: AddStudentDialog
         guardianPhone: '',
         guardianEmail: '',
         relationship: '',
-        totalFees: '',
+        studentType: 'new' as StudentType,
+        enrollmentYear: currentYear,
     });
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
     const submittingRef = useRef(false);
 
+    // Calculate fees based on grade and student type
+    const calculatedFees = formData.grade
+        ? getFeeStructure(formData.grade, formData.studentType)
+        : null;
+
+    // Populate form when updating
+    React.useEffect(() => {
+        if (isUpdate && student && open) {
+            const guardians = typeof student.guardians === 'string'
+                ? JSON.parse(student.guardians)
+                : student.guardians;
+
+            setFormData({
+                firstName: student.firstName || '',
+                lastName: student.lastName || '',
+                grade: student.grade || '',
+                admissionNumber: student.admissionNumber || '',
+                dateOfBirth: student.dateOfBirth || '',
+                guardianName: guardians?.[0]?.name || '',
+                guardianPhone: guardians?.[0]?.phone || '',
+                guardianEmail: guardians?.[0]?.email || '',
+                relationship: guardians?.[0]?.relationship || '',
+                studentType: student.studentType || 'old',
+                enrollmentYear: student.enrollmentYear || currentYear,
+            });
+        } else if (!open) {
+            // Reset form when dialog closes
+            setFormData({
+                firstName: '',
+                lastName: '',
+                grade: '',
+                admissionNumber: '',
+                dateOfBirth: '',
+                guardianName: '',
+                guardianPhone: '',
+                guardianEmail: '',
+                relationship: '',
+                studentType: 'new',
+                enrollmentYear: currentYear,
+            });
+        }
+    }, [isUpdate, student, open, currentYear]);
+
     const handleSubmit = async () => {
-        console.log('handleSubmit invoked'); // ← Debug log to check invocation count
+        console.log('handleSubmit invoked');
         if (submittingRef.current) {
-            console.log('Blocked duplicate submission'); // ← Debug log for blocked attempts
+            console.log('Blocked duplicate submission');
             return;
         }
         submittingRef.current = true;
@@ -69,7 +121,6 @@ export function AddStudentDialog({ open, onOpenChange, onAdd }: AddStudentDialog
         setError('');
         setIsLoading(true);
 
-        
         // Validation
         if (
             !formData.firstName ||
@@ -77,7 +128,6 @@ export function AddStudentDialog({ open, onOpenChange, onAdd }: AddStudentDialog
             !formData.grade ||
             !formData.admissionNumber ||
             !formData.dateOfBirth ||
-            !formData.totalFees ||
             !formData.guardianName ||
             !formData.guardianPhone ||
             !formData.guardianEmail ||
@@ -102,11 +152,26 @@ export function AddStudentDialog({ open, onOpenChange, onAdd }: AddStudentDialog
                 return;
             }
 
+            // Get user profile for school name
+            const profile = await authService.getUserProfile(user.$id);
+            if (!profile?.schoolName) {
+                toast.error('Profile Error', {
+                    description: 'Your account is missing school information',
+                });
+                submittingRef.current = false;
+                setIsLoading(false);
+                return;
+            }
+
             console.log('Creating student for user:', user.$id, 'with admissionNumber:', formData.admissionNumber);
 
-            // Check for existing admission number
-            const existingStudents = await studentService.getStudents(user.$id);
-            if (existingStudents.some((student: any) => student.admissionNumber === formData.admissionNumber)) {
+            // Check for existing admission number (skip if updating the same student)
+            const existingStudents = await studentService.getStudentsBySchool(profile.schoolName);
+            const studentId = student?.$id || student?.id;
+            if (existingStudents.some((s: any) =>
+                s.admissionNumber === formData.admissionNumber &&
+                (!isUpdate || (s.$id !== studentId && s.id !== studentId))
+            )) {
                 toast.error('Validation Error', {
                     description: 'A student with this admission number already exists',
                 });
@@ -115,39 +180,69 @@ export function AddStudentDialog({ open, onOpenChange, onAdd }: AddStudentDialog
                 return;
             }
 
-            const loadingToast = toast.loading('Adding student...', {
-                description: 'Please wait while we create the student record',
+            // Get fee structure
+            const feeStructure = getFeeStructure(formData.grade, formData.studentType);
+            const totalFees = feeStructure.totalAnnual;
+
+            const loadingToast = toast.loading(isUpdate ? 'Updating student...' : 'Adding student...', {
+                description: isUpdate
+                    ? 'Please wait while we update the student record'
+                    : 'Please wait while we create the student record',
             });
 
-            const student = await studentService.createStudent(user.$id, {
-                firstName: formData.firstName,
-                lastName: formData.lastName,
-                grade: formData.grade,
-                admissionNumber: formData.admissionNumber,
-                dateOfBirth: formData.dateOfBirth,
-                totalFees: parseFloat(formData.totalFees),
-                guardianName: formData.guardianName,
-                guardianPhone: formData.guardianPhone,
-                guardianEmail: formData.guardianEmail,
-                relationship: formData.relationship,
-            });
+            let result;
+            if (isUpdate && studentId) {
+                result = await studentService.updateStudent(studentId, {
+                    firstName: formData.firstName,
+                    lastName: formData.lastName,
+                    grade: formData.grade,
+                    admissionNumber: formData.admissionNumber,
+                    dateOfBirth: formData.dateOfBirth,
+                    totalFees: totalFees,
+                    studentType: formData.studentType,
+                    enrollmentYear: formData.enrollmentYear,
+                    feeStructure: JSON.stringify(feeStructure),
+                    guardians: JSON.stringify([{
+                        name: formData.guardianName,
+                        phone: formData.guardianPhone,
+                        email: formData.guardianEmail,
+                        relationship: formData.relationship,
+                    }]),
+                });
+            } else {
+                result = await studentService.createStudent(user.$id, {
+                    firstName: formData.firstName,
+                    lastName: formData.lastName,
+                    grade: formData.grade,
+                    admissionNumber: formData.admissionNumber,
+                    dateOfBirth: formData.dateOfBirth,
+                    totalFees: totalFees,
+                    studentType: formData.studentType,
+                    enrollmentYear: formData.enrollmentYear,
+                    guardianName: formData.guardianName,
+                    guardianPhone: formData.guardianPhone,
+                    guardianEmail: formData.guardianEmail,
+                    relationship: formData.relationship,
+                    schoolName: profile.schoolName,
+                });
+            }
 
-            console.log('Student created:', student.$id); // ← Log the created student ID
+            console.log(isUpdate ? 'Student updated:' : 'Student created:', result.$id);
 
             toast.dismiss(loadingToast);
-            toast.success('Student Added Successfully! 🎓', {
+            toast.success(isUpdate ? 'Student Updated Successfully! ✏️' : 'Student Added Successfully! 🎓', {
                 description: (
                     <div className="mt-2 space-y-1">
                         <p className="font-semibold">{formData.firstName} {formData.lastName}</p>
                         <p>Class: {formData.grade}</p>
-                        <p>Admission No: {formData.admissionNumber}</p>
-                        <p className="text-xs text-gray-500 mt-2">Guardian: {formData.guardianName}</p>
+                        <p>Type: {formData.studentType === 'new' ? '2026 Enrollment' : 'Returning Student'}</p>
+                        <p>Annual Fees: KES {totalFees.toLocaleString()}</p>
                     </div>
                 ),
                 duration: 5000,
             });
 
-            if (typeof onAdd === 'function') onAdd(student);
+            if (typeof onAdd === 'function') onAdd(result);
 
             setFormData({
                 firstName: '',
@@ -159,13 +254,14 @@ export function AddStudentDialog({ open, onOpenChange, onAdd }: AddStudentDialog
                 guardianPhone: '',
                 guardianEmail: '',
                 relationship: '',
-                totalFees: '',
+                studentType: 'new',
+                enrollmentYear: currentYear,
             });
 
             onOpenChange(false);
         } catch (err: any) {
             console.error('Failed to add student:', err);
-            toast.error('Failed to Add Student', {
+            toast.error(isUpdate ? 'Failed to Update Student' : 'Failed to Add Student', {
                 description: err.message || 'An error occurred while adding the student',
             });
             setError(err.message || 'Failed to add student');
@@ -177,15 +273,87 @@ export function AddStudentDialog({ open, onOpenChange, onAdd }: AddStudentDialog
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
-                    <DialogTitle>Add New Student</DialogTitle>
+                    <DialogTitle>{isUpdate ? 'Update Student' : 'Add New Student'}</DialogTitle>
                 </DialogHeader>
 
                 {error && (
                     <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
                         {error}
                     </div>
+                )}
+
+                {/* Student Type Selection */}
+                <div className="space-y-3 border-b pb-4">
+                    <Label className="text-base font-semibold">Student Type *</Label>
+                    <RadioGroup
+                        value={formData.studentType}
+                        onValueChange={(value: StudentType) => setFormData({ ...formData, studentType: value })}
+                        disabled={isLoading}
+                        className="grid grid-cols-1 md:grid-cols-2 gap-3"
+                    >
+                        <label className="flex items-start space-x-3 border-2 rounded-lg p-4 cursor-pointer hover:bg-blue-50 transition-colors has-[:checked]:border-blue-600 has-[:checked]:bg-blue-50">
+                            <RadioGroupItem value="new" id="new" className="mt-1" />
+                            <div className="flex-1">
+                                <div className="font-semibold text-blue-900">New Student (2026 Enrollment)</div>
+                                <p className="text-sm text-gray-600 mt-1">
+                                    First-time enrollment. Includes one-time admission fees.
+                                </p>
+                            </div>
+                        </label>
+
+                        <label className="flex items-start space-x-3 border-2 rounded-lg p-4 cursor-pointer hover:bg-green-50 transition-colors has-[:checked]:border-green-600 has-[:checked]:bg-green-50">
+                            <RadioGroupItem value="old" id="old" className="mt-1" />
+                            <div className="flex-1">
+                                <div className="font-semibold text-green-900">Returning Student</div>
+                                <p className="text-sm text-gray-600 mt-1">
+                                    Existing student. No admission fees required.
+                                </p>
+                            </div>
+                        </label>
+                    </RadioGroup>
+                </div>
+
+                {/* Fee Structure Preview */}
+                {calculatedFees && (
+                    <Card className="bg-blue-50 border-blue-200">
+                        <CardContent className="p-4">
+                            <div className="flex items-start gap-2">
+                                <Info className="h-5 w-5 text-blue-600 mt-0.5" />
+                                <div className="flex-1">
+                                    <h4 className="font-semibold text-blue-900 mb-2">
+                                        {formData.studentType === 'new' ? '2026 Fee Structure' : 'Returning Student Fee Structure'}
+                                    </h4>
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                                        <div>
+                                            <p className="text-gray-600">Term 1</p>
+                                            <p className="font-bold text-blue-900">KES {calculatedFees.term1.toLocaleString()}</p>
+                                        </div>
+                                        <div>
+                                            <p className="text-gray-600">Term 2</p>
+                                            <p className="font-bold text-blue-900">KES {calculatedFees.term2.toLocaleString()}</p>
+                                        </div>
+                                        <div>
+                                            <p className="text-gray-600">Term 3</p>
+                                            <p className="font-bold text-blue-900">KES {calculatedFees.term3.toLocaleString()}</p>
+                                        </div>
+                                        <div>
+                                            <p className="text-gray-600">Annual Total</p>
+                                            <p className="font-bold text-green-700">KES {calculatedFees.totalAnnual.toLocaleString()}</p>
+                                        </div>
+                                    </div>
+                                    {calculatedFees.oneTimeFees && formData.studentType === 'new' && (
+                                        <p className="text-xs text-blue-700 mt-2">
+                                            * Term 1 includes KES {calculatedFees.oneTimeFees.total.toLocaleString()} one-time fees
+                                            (Admission: {calculatedFees.oneTimeFees.admissionFee}, Form: {calculatedFees.oneTimeFees.admissionForm},
+                                            Badge: {calculatedFees.oneTimeFees.schoolBadge}, Diary: {calculatedFees.oneTimeFees.schoolDiary})
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
                 )}
 
                 <div className="grid grid-cols-2 gap-4">
@@ -245,13 +413,14 @@ export function AddStudentDialog({ open, onOpenChange, onAdd }: AddStudentDialog
                         />
                     </div>
                     <div>
-                        <Label>Total Fees (KES) *</Label>
+                        <Label>Enrollment Year</Label>
                         <Input
                             type="number"
-                            value={formData.totalFees}
-                            onChange={(e) => setFormData({ ...formData, totalFees: e.target.value })}
-                            placeholder="e.g. 50000"
+                            value={formData.enrollmentYear}
+                            onChange={(e) => setFormData({ ...formData, enrollmentYear: parseInt(e.target.value) })}
                             disabled={isLoading}
+                            min={2020}
+                            max={2030}
                         />
                     </div>
                 </div>
@@ -318,8 +487,8 @@ export function AddStudentDialog({ open, onOpenChange, onAdd }: AddStudentDialog
                     >
                         Cancel
                     </Button>
-                    <Button onClick={handleSubmit} disabled={isLoading}>
-                        {isLoading ? 'Adding Student...' : 'Add Student'}
+                    <Button onClick={handleSubmit} disabled={isLoading || !formData.grade}>
+                        {isLoading ? (isUpdate ? 'Updating...' : 'Adding...') : (isUpdate ? 'Update Student' : 'Add Student')}
                     </Button>
                 </DialogFooter>
             </DialogContent>

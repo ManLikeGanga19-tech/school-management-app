@@ -1,7 +1,13 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogFooter,
+} from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -18,8 +24,14 @@ interface AddPaymentDialogProps {
     onAdd: (payment: any) => void;
 }
 
-export function AddPaymentDialog({ open, onOpenChange, students, onAdd }: AddPaymentDialogProps) {
+export function AddPaymentDialog({
+    open,
+    onOpenChange,
+    students,
+    onAdd,
+}: AddPaymentDialogProps) {
     const currentDate = new Date();
+
     const [formData, setFormData] = useState({
         studentId: '',
         studentName: '',
@@ -31,7 +43,8 @@ export function AddPaymentDialog({ open, onOpenChange, students, onAdd }: AddPay
         date: currentDate.toISOString().split('T')[0],
         time: currentDate.toTimeString().slice(0, 5),
         paymentMethod: 'Kcb M-Pesa',
-        receiptNumber: ''
+        receiptNumber: '',
+        termNumber: '' as '' | '1' | '2' | '3', // ✅ string type for select input
     });
 
     const [search, setSearch] = useState('');
@@ -40,19 +53,24 @@ export function AddPaymentDialog({ open, onOpenChange, students, onAdd }: AddPay
 
     // ✅ Remove duplicates by unique student ID
     const uniqueStudents = Array.from(
-        new Map(students.map(s => [(s.$id || s.id), s])).values()
+        new Map(students.map((s) => [(s.$id || s.id), s])).values()
     );
 
-    const filteredStudents = uniqueStudents.filter(s =>
-        `${s.firstName} ${s.lastName}`.toLowerCase().includes(search.toLowerCase())
+    const filteredStudents = uniqueStudents.filter((s) =>
+        `${s.firstName} ${s.lastName}`
+            .toLowerCase()
+            .includes(search.toLowerCase())
     );
 
-    const selectedStudent = uniqueStudents.find(s => (s.$id || s.id) === formData.studentId);
+    const selectedStudent = uniqueStudents.find(
+        (s) => (s.$id || s.id) === formData.studentId
+    );
 
     const handleStudentSelect = (student: Student) => {
-        const guardians = typeof student.guardians === 'string'
-            ? JSON.parse(student.guardians)
-            : student.guardians;
+        const guardians =
+            typeof student.guardians === 'string'
+                ? JSON.parse(student.guardians)
+                : student.guardians;
 
         if (guardians.length > 0) {
             setFormData({
@@ -67,25 +85,25 @@ export function AddPaymentDialog({ open, onOpenChange, students, onAdd }: AddPay
         }
     };
 
-    // ✅ SMS sender function (sandbox-safe)
+    // ✅ SMS sender
     const sendSmsNotification = async (phone: string, message: string) => {
         try {
             const res = await fetch('/api/sms', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    numbers: [phone],
-                    message,
-                }),
+                body: JSON.stringify({ numbers: [phone], message }),
             });
 
             const data = await res.json();
-
             if (!res.ok) {
                 console.error('SMS error:', data);
-                toast.error('SMS Failed', { description: data.error || 'Could not send SMS' });
+                toast.error('SMS Failed', {
+                    description: data.error || 'Could not send SMS',
+                });
             } else {
-                toast.success('SMS Sent', { description: 'Notification sent to guardian successfully' });
+                toast.success('SMS Sent', {
+                    description: 'Notification sent to guardian successfully',
+                });
             }
         } catch (err: any) {
             console.error('Error sending SMS:', err);
@@ -97,23 +115,30 @@ export function AddPaymentDialog({ open, onOpenChange, students, onAdd }: AddPay
         setError('');
 
         if (!formData.studentId) {
-            toast.error('Validation Error', { description: 'Please select a student' });
+            toast.error('Validation Error', {
+                description: 'Please select a student',
+            });
             return;
         }
+
+        if (!formData.termNumber) {
+            toast.error('Validation Error', {
+                description: 'Please select the term for this payment',
+            });
+            return;
+        }
+
         if (!formData.mpesaCode.trim()) {
-            toast.error('Validation Error', { description: 'Please enter KCB M-Pesa code' });
+            toast.error('Validation Error', {
+                description: 'Please enter KCB M-Pesa code',
+            });
             return;
         }
+
         if (!formData.amount || parseFloat(formData.amount) <= 0) {
-            toast.error('Validation Error', { description: 'Please enter a valid amount' });
-            return;
-        }
-        if (!formData.date) {
-            toast.error('Validation Error', { description: 'Please select a date' });
-            return;
-        }
-        if (!formData.time) {
-            toast.error('Validation Error', { description: 'Please select a time' });
+            toast.error('Validation Error', {
+                description: 'Please enter a valid amount',
+            });
             return;
         }
 
@@ -122,17 +147,29 @@ export function AddPaymentDialog({ open, onOpenChange, students, onAdd }: AddPay
         try {
             const user = await authService.getCurrentUser();
             if (!user) {
-                toast.error('Authentication Error', { description: 'You must be logged in to record payments' });
+                toast.error('Authentication Error', {
+                    description: 'You must be logged in to record payments',
+                });
                 setIsLoading(false);
                 return;
             }
 
-            console.log('Recording payment for user:', user.$id);
+            const profile = await authService.getUserProfile(user.$id);
+            if (!profile?.schoolName) {
+                toast.error('Missing School Information', {
+                    description: 'Your account is missing school details.',
+                });
+                setIsLoading(false);
+                return;
+            }
 
             const loadingToast = toast.loading('Recording payment...', {
                 description: 'Please wait while we process your payment',
             });
 
+            const termNumber = parseInt(formData.termNumber) as 1 | 2 | 3; // ✅ Explicit cast
+
+            // ✅ Create payment
             const payment = await paymentService.createPayment(user.$id, {
                 studentId: formData.studentId,
                 studentName: formData.studentName,
@@ -144,40 +181,39 @@ export function AddPaymentDialog({ open, onOpenChange, students, onAdd }: AddPay
                 date: formData.date,
                 time: formData.time,
                 paymentMethod: formData.paymentMethod,
+                termNumber,
+                schoolName: profile.schoolName,
             });
 
-            console.log('Payment created:', payment);
-
-            // ✅ Update student's fee balance
-            const updatedStudent = await studentService.updateStudentFees(formData.studentId, parseFloat(formData.amount));
+            // ✅ Update term fees correctly
+            await studentService.updateTermFees(
+                formData.studentId,
+                termNumber,
+                parseFloat(formData.amount)
+            );
 
             toast.dismiss(loadingToast);
-
             toast.success('Payment Recorded Successfully! 🎉', {
                 description: (
                     <div className="mt-2 space-y-1">
                         <p className="font-semibold">Receipt: {payment.receiptNumber}</p>
                         <p>Student: {formData.studentName}</p>
                         <p>Amount: KES {parseFloat(formData.amount).toLocaleString()}</p>
-                        <p className="text-xs text-gray-500 mt-2">M-Pesa Code: {formData.mpesaCode}</p>
+                        <p>Term: {termNumber}</p>
+                        <p className="text-xs text-gray-500 mt-2">
+                            M-Pesa Code: {formData.mpesaCode}
+                        </p>
                     </div>
                 ),
                 duration: 6000,
             });
 
-            // ✅ Send SMS notification to guardian after successful payment
-            const successMessage = `Dear ${formData.parentName}, your payment of KES ${formData.amount} for ${formData.studentName} (${formData.studentClass}) has been received successfully. Thank you!`;
+            const successMessage = `Dear ${formData.parentName}, your payment of KES ${formData.amount} for ${formData.studentName} (${formData.studentClass}) - Term ${termNumber} has been received successfully. Thank you!`;
             await sendSmsNotification(formData.parentPhone, successMessage);
-
-            // ✅ If fee balance exceeds 10,000, send alert
-            const newBalance = updatedStudent?.feeBalance ?? selectedStudent?.feeBalance ?? 0;
-            if (newBalance > 10000) {
-                const balanceMessage = `Dear ${formData.parentName}, the current fee balance for ${formData.studentName} is KES ${newBalance.toLocaleString()}. Please clear the balance soon.`;
-                await sendSmsNotification(formData.parentPhone, balanceMessage);
-            }
 
             onAdd(payment);
 
+            // ✅ Reset form
             const newDate = new Date();
             setFormData({
                 studentId: '',
@@ -190,15 +226,16 @@ export function AddPaymentDialog({ open, onOpenChange, students, onAdd }: AddPay
                 date: newDate.toISOString().split('T')[0],
                 time: newDate.toTimeString().slice(0, 5),
                 paymentMethod: 'Kcb M-Pesa',
-                receiptNumber: ''
+                receiptNumber: '',
+                termNumber: '',
             });
             setSearch('');
-
             onOpenChange(false);
         } catch (err: any) {
             console.error('Failed to record payment:', err);
             toast.error('Payment Failed', {
-                description: err.message || 'Failed to record payment. Please try again.',
+                description:
+                    err.message || 'Failed to record payment. Please try again.',
             });
             setError(err.message || 'Failed to record payment');
         } finally {
@@ -220,6 +257,7 @@ export function AddPaymentDialog({ open, onOpenChange, students, onAdd }: AddPay
                 )}
 
                 <div className="grid grid-cols-2 gap-4">
+                    {/* Search Student */}
                     <div className="col-span-2 relative">
                         <Label>Search Student *</Label>
                         <Input
@@ -231,41 +269,55 @@ export function AddPaymentDialog({ open, onOpenChange, students, onAdd }: AddPay
                         />
                         {search && filteredStudents.length > 0 && (
                             <div className="absolute z-10 bg-white border rounded w-full max-h-60 overflow-y-auto mt-1 shadow-lg">
-                                {filteredStudents.map(student => (
+                                {filteredStudents.map((student) => (
                                     <div
                                         key={student.$id || student.id}
                                         className="p-2 cursor-pointer hover:bg-gray-100"
                                         onClick={() => handleStudentSelect(student)}
                                     >
-                                        {student.firstName} {student.lastName} - {student.grade} - Balance: KES {student.feeBalance.toLocaleString()}
+                                        {student.firstName} {student.lastName} - {student.grade} -
+                                        Balance: KES {student.feeBalance.toLocaleString()}
                                     </div>
                                 ))}
                             </div>
                         )}
                     </div>
 
+                    {/* Student Info */}
                     {selectedStudent && (
                         <div className="col-span-2 p-4 bg-green-50 rounded-lg border border-green-200">
-                            <p className="text-sm font-semibold text-green-900 mb-2">Payment Details:</p>
+                            <p className="text-sm font-semibold text-green-900 mb-2">
+                                Payment Details:
+                            </p>
                             <div className="grid grid-cols-2 gap-2 text-sm">
                                 <div>
                                     <span className="text-green-700 font-medium">Student:</span>
-                                    <span className="ml-2 text-green-900">{formData.studentName}</span>
+                                    <span className="ml-2 text-green-900">
+                                        {formData.studentName}
+                                    </span>
                                 </div>
                                 <div>
                                     <span className="text-green-700 font-medium">Class:</span>
-                                    <span className="ml-2 text-green-900">{formData.studentClass}</span>
+                                    <span className="ml-2 text-green-900">
+                                        {formData.studentClass}
+                                    </span>
                                 </div>
                                 <div>
                                     <span className="text-green-700 font-medium">Parent:</span>
-                                    <span className="ml-2 text-green-900">{formData.parentName}</span>
+                                    <span className="ml-2 text-green-900">
+                                        {formData.parentName}
+                                    </span>
                                 </div>
                                 <div>
                                     <span className="text-green-700 font-medium">Phone:</span>
-                                    <span className="ml-2 text-green-900">{formData.parentPhone}</span>
+                                    <span className="ml-2 text-green-900">
+                                        {formData.parentPhone}
+                                    </span>
                                 </div>
                                 <div>
-                                    <span className="text-green-700 font-medium">Current Balance:</span>
+                                    <span className="text-green-700 font-medium">
+                                        Current Balance:
+                                    </span>
                                     <span className="ml-2 text-green-900 font-semibold">
                                         KES {selectedStudent.feeBalance.toLocaleString()}
                                     </span>
@@ -274,26 +326,55 @@ export function AddPaymentDialog({ open, onOpenChange, students, onAdd }: AddPay
                         </div>
                     )}
 
+                    {/* Term Selection */}
+                    <div className="col-span-2">
+                        <Label>Term *</Label>
+                        <select
+                            value={formData.termNumber}
+                            onChange={(e) =>
+                                setFormData({
+                                    ...formData,
+                                    termNumber: e.target.value as '' | '1' | '2' | '3',
+                                })
+                            }
+                            className="w-full border rounded-md p-2 focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                            disabled={isLoading}
+                        >
+                            <option value="">Select Term</option>
+                            <option value="1">Term 1</option>
+                            <option value="2">Term 2</option>
+                            <option value="3">Term 3</option>
+                        </select>
+                    </div>
+
+                    {/* Mpesa Code */}
                     <div className="col-span-2">
                         <Label>KCB M-Pesa Code *</Label>
                         <Input
                             placeholder="e.g., QGH7XYZ123"
                             value={formData.mpesaCode}
-                            onChange={(e) => setFormData({ ...formData, mpesaCode: e.target.value.toUpperCase() })}
+                            onChange={(e) =>
+                                setFormData({
+                                    ...formData,
+                                    mpesaCode: e.target.value.toUpperCase(),
+                                })
+                            }
                             className="font-mono text-lg"
                             maxLength={20}
                             disabled={isLoading}
                         />
-                        <p className="text-xs text-gray-500 mt-1">Enter the KCB M-Pesa transaction code</p>
                     </div>
 
+                    {/* Amount */}
                     <div className="col-span-2">
                         <Label>Amount (KES) *</Label>
                         <Input
                             type="number"
                             placeholder="0.00"
                             value={formData.amount}
-                            onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+                            onChange={(e) =>
+                                setFormData({ ...formData, amount: e.target.value })
+                            }
                             min="0"
                             step="0.01"
                             className="text-lg"
@@ -301,12 +382,15 @@ export function AddPaymentDialog({ open, onOpenChange, students, onAdd }: AddPay
                         />
                     </div>
 
+                    {/* Date / Time */}
                     <div>
                         <Label>Date *</Label>
                         <Input
                             type="date"
                             value={formData.date}
-                            onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                            onChange={(e) =>
+                                setFormData({ ...formData, date: e.target.value })
+                            }
                             max={new Date().toISOString().split('T')[0]}
                             disabled={isLoading}
                         />
@@ -317,18 +401,23 @@ export function AddPaymentDialog({ open, onOpenChange, students, onAdd }: AddPay
                         <Input
                             type="time"
                             value={formData.time}
-                            onChange={(e) => setFormData({ ...formData, time: e.target.value })}
+                            onChange={(e) =>
+                                setFormData({ ...formData, time: e.target.value })
+                            }
                             disabled={isLoading}
                         />
                     </div>
 
+                    {/* Info Box */}
                     <div className="col-span-2 p-3 bg-blue-50 rounded-lg border border-blue-200">
                         <p className="text-sm text-blue-800">
-                            <span className="font-semibold">📝 Receipt Number:</span> Will be auto-generated after recording payment
+                            <span className="font-semibold">📝 Receipt Number:</span> Will be
+                            auto-generated after recording payment
                         </p>
                     </div>
                 </div>
 
+                {/* Footer */}
                 <DialogFooter className="gap-2">
                     <Button
                         variant="outline"

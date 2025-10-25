@@ -1,8 +1,3 @@
-// ============================================
-// FILE: components/sms/sms-view.tsx
-// MOBILE-RESPONSIVE VERSION (CLEANER + NEATER)
-// ============================================
-
 'use client';
 
 import React, { useState } from 'react';
@@ -13,13 +8,14 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SendSMSDialog } from './send-sms-dialog';
 import { Student } from '@/types';
+import { toast } from 'sonner';
+import { sendSms } from '@/lib/sms';
 
 interface SMSViewProps {
     students: Student[];
-    onSendSMS: (selectedIds: string[], message: string, messageType?: 'fee' | 'general') => void;
 }
 
-export function SMSView({ students, onSendSMS }: SMSViewProps) {
+export function SMSView({ students }: SMSViewProps) {
     const [showSendDialog, setShowSendDialog] = useState(false);
     const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
     const [messageType, setMessageType] = useState<'fee' | 'general'>('fee');
@@ -61,9 +57,62 @@ export function SMSView({ students, onSendSMS }: SMSViewProps) {
         setShowSendDialog(true);
     };
 
-    const handleSend = (message: string) => {
-        onSendSMS(selectedStudents, message, messageType);
-        setSelectedStudents([]);
+    // ✅ Main SMS sending logic (personalized like Add Payment)
+    const handleSend = async (rawMessage: string) => {
+        try {
+            const recipients = allStudents.filter((s) => selectedStudents.includes(s.id));
+
+            if (recipients.length === 0) {
+                toast.error('No students selected', {
+                    description: 'Please select at least one student to send the message.',
+                });
+                return;
+            }
+
+            const sendingToast = toast.loading('Sending SMS...', {
+                description: `Delivering to ${recipients.length} guardian(s)...`,
+            });
+
+            for (const student of recipients) {
+                const guardian = typeof student.guardians === 'string'
+                    ? JSON.parse(student.guardians)[0]
+                    : student.guardians[0];
+
+                if (!guardian?.phone) continue;
+
+                // 🧠 Replace variables dynamically
+                const personalizedMessage =
+                    rawMessage
+                        .replace(/\[StudentName\]/g, `${student.firstName} ${student.lastName}`)
+                        .replace(/\[Class\]/g, student.grade || '')
+                        .replace(/\[Balance\]/g, student.feeBalance?.toLocaleString() || '0')
+                        .replace(/\[Date\]/g, new Date().toLocaleDateString())
+                        .replace(
+                            /\[Time\]/g,
+                            new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                        )
+                        .replace(/\[Amount\]/g, student.feeBalance?.toLocaleString() || '0') +
+                    `\n\n— ${student.schoolName || 'Your School'}`;
+
+                // 📤 Send SMS via your API
+                await sendSms([guardian.phone], personalizedMessage);
+
+                console.log(`✅ SMS sent to ${guardian.name} (${guardian.phone})`);
+            }
+
+            toast.dismiss(sendingToast);
+            toast.success('All messages sent successfully! 🎉', {
+                description: `Delivered to ${recipients.length} guardian(s).`,
+                duration: 6000,
+            });
+
+            setSelectedStudents([]);
+        } catch (err: any) {
+            console.error('💥 SMS send failed:', err);
+            toast.error('SMS Sending Failed', {
+                description: err.message || 'Failed to deliver messages. Check your API configuration.',
+            });
+        }
     };
 
     return (
@@ -82,9 +131,7 @@ export function SMSView({ students, onSendSMS }: SMSViewProps) {
 
             {/* Tabs */}
             <Tabs defaultValue="fee-reminders" className="space-y-5">
-                <TabsList
-                    className="grid grid-cols-2 rounded-lg overflow-hidden text-[13px] sm:text-base"
-                >
+                <TabsList className="grid grid-cols-2 rounded-lg overflow-hidden text-[13px] sm:text-base">
                     <TabsTrigger
                         value="fee-reminders"
                         className="flex flex-row items-center justify-center gap-2 py-2 sm:py-3 min-w-0 text-center whitespace-nowrap"
@@ -101,8 +148,6 @@ export function SMSView({ students, onSendSMS }: SMSViewProps) {
                         <span className="truncate">General Messages</span>
                     </TabsTrigger>
                 </TabsList>
-
-
 
                 {/* Fee Reminders Tab */}
                 <TabsContent value="fee-reminders" className="space-y-4">
@@ -301,9 +346,7 @@ export function SMSView({ students, onSendSMS }: SMSViewProps) {
                 onOpenChange={setShowSendDialog}
                 selectedCount={selectedStudents.length}
                 totalWithBalance={
-                    messageType === 'fee'
-                        ? studentsWithBalance.length
-                        : allStudents.length
+                    messageType === 'fee' ? studentsWithBalance.length : allStudents.length
                 }
                 messageType={messageType}
                 onSend={handleSend}

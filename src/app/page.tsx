@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Sidebar } from "@/components/ui/sidebar";
 import { DashboardView } from "@/components/dashboard/dashboard-view";
 import { StudentsView } from "@/components/students/students-view";
 import { PaymentsView } from "@/components/payments/payments-view";
-import { SMSView } from "@/components/sms/sms-view"; // Named import
+import { SMSView } from "@/components/sms/sms-view";
+import { ManageSecretariesView } from "@/components/secretaries/manage-secretaries-view";
 
 import { authService } from "@/lib/appwrite/auth.service";
 import { studentService } from "@/lib/appwrite/student.service";
@@ -19,7 +20,6 @@ import { toast } from "sonner";
 
 export default function SchoolManagementPage() {
   const router = useRouter();
-
   const [user, setUser] = useState<any | null>(null);
   const [profile, setProfile] = useState<any | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -27,12 +27,11 @@ export default function SchoolManagementPage() {
   const [students, setStudents] = useState<Student[]>([]);
   const [payments, setPayments] = useState<FeePayment[]>([]);
 
-  const [currentView, setCurrentView] = useState<View>("dashboard");
-  const [sidebarOpen, setSidebarOpen] = useState<boolean>(true);
+  const [currentView, setCurrentView] = useState<View | "secretaries">("dashboard");
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
 
-  // ---------- Helpers ----------
+  // ---------- Mappers ----------
   const mapStudentDocToStudent = (doc: StudentDocument): Student => {
-    // Parse guardians if it's a string
     const guardians =
       typeof (doc as any).guardians === "string"
         ? JSON.parse((doc as any).guardians)
@@ -47,7 +46,7 @@ export default function SchoolManagementPage() {
       grade: (doc as any).grade,
       admissionNumber: (doc as any).admissionNumber,
       dateOfBirth: (doc as any).dateOfBirth,
-      guardians: Array.isArray(guardians) ? guardians : [], // Ensure it's an array
+      guardians: Array.isArray(guardians) ? guardians : [],
       feeBalance: (doc as any).feeBalance ?? 0,
       totalFees: (doc as any).totalFees ?? 0,
       paidFees: (doc as any).paidFees ?? 0,
@@ -76,11 +75,25 @@ export default function SchoolManagementPage() {
     $updatedAt: doc.$updatedAt,
   });
 
+  // ---------- Central loader ----------
+  const loadData = useCallback(
+    async (schoolName: string) => {
+      const [rawStudents, rawPayments] = await Promise.all([
+        studentService.getStudentsBySchool(schoolName),
+        paymentService.getPaymentsBySchool(schoolName),
+      ]);
+
+      setStudents(rawStudents.map(mapStudentDocToStudent));
+      setPayments(rawPayments.map(mapPaymentDocToFeePayment));
+    },
+    []
+  );
+
   // ---------- Init ----------
   useEffect(() => {
     let mounted = true;
 
-    const init = async () => {
+    (async () => {
       try {
         const currentUser = await authService.getCurrentUser();
         if (!currentUser) {
@@ -91,42 +104,31 @@ export default function SchoolManagementPage() {
 
         setUser(currentUser);
 
-        try {
-          const userProfile = await authService.getUserProfile(currentUser.$id);
-          if (mounted) setProfile(userProfile);
-        } catch (err) {
-          console.error("Failed to load profile:", err);
+        const userProfile = await authService.getUserProfile(currentUser.$id);
+        if (!mounted) return;
+        setProfile(userProfile);
+
+        if (!userProfile?.schoolName) {
+          toast.error("Profile incomplete", {
+            description:
+              "Your account is missing 'schoolName'. Please contact the administrator.",
+          });
+          return;
         }
 
-        const [rawStudents, rawPayments] = await Promise.all([
-          studentService.getStudents(currentUser.$id),
-          paymentService.getPayments(currentUser.$id),
-        ]);
-
-        if (!mounted) return;
-
-        const fetchedStudents = (rawStudents || []).map(
-          (s: unknown) => s as unknown as StudentDocument
-        );
-        const fetchedPayments = (rawPayments || []).map(
-          (p: unknown) => p as unknown as PaymentDocument
-        );
-
-        setStudents(fetchedStudents.map(mapStudentDocToStudent));
-        setPayments(fetchedPayments.map(mapPaymentDocToFeePayment));
+        await loadData(userProfile.schoolName);
       } catch (error) {
         console.error("Initialization error:", error);
         router.push("/login");
       } finally {
         if (mounted) setIsLoading(false);
       }
-    };
+    })();
 
-    init();
     return () => {
       mounted = false;
     };
-  }, [router]);
+  }, [router, loadData]);
 
   // ---------- Handlers ----------
   const handleLogout = async () => {
@@ -145,22 +147,19 @@ export default function SchoolManagementPage() {
     }
   };
 
-  // ---------- SMS Handler with message type support ----------
   const handleSendSMS = async (
     selectedIds: string[],
     message: string,
-    messageType?: 'fee' | 'general'
+    messageType?: "fee" | "general"
   ) => {
-    // Get recipients based on selection and message type
     const recipients =
       selectedIds.length > 0
         ? students.filter((s) => selectedIds.includes(s.id))
-        : messageType === 'fee'
+        : messageType === "fee"
           ? students.filter((s) => s.feeBalance > 0)
           : students;
 
-    // Replace variables in the message for each student
-    const personalizedMessages = recipients.map(student => {
+    const personalizedMessages = recipients.map((student) => {
       const guardian = student.guardians[0];
       let personalizedMsg = message
         .replace(/\[StudentName\]/g, `${student.firstName} ${student.lastName}`)
@@ -168,25 +167,22 @@ export default function SchoolManagementPage() {
         .replace(/\[Balance\]/g, student.feeBalance.toString());
 
       return {
-        phone: guardian?.phone || '',
+        phone: guardian?.phone || "",
         message: personalizedMsg,
-        studentName: `${student.firstName} ${student.lastName}`
+        studentName: `${student.firstName} ${student.lastName}`,
       };
     });
 
-    console.log('SMS Details:', {
-      messageType: messageType || 'general',
-      recipientCount: recipients.length,
-      messages: personalizedMessages
-    });
-
+    console.log("SMS prepared:", { count: personalizedMessages.length });
     toast.success("SMS Ready to Send", {
-      description: `${recipients.length} message(s) prepared. Integrate Africa's Talking to send.`,
+      description: `${personalizedMessages.length} message(s) prepared.`,
     });
+  };
 
-    // TODO: Integrate with Africa's Talking API here
-    // Example:
-    // await smsService.sendBulkSMS(personalizedMessages);
+  const refreshAll = async () => {
+    if (profile?.schoolName) {
+      await loadData(profile.schoolName);
+    }
   };
 
   if (isLoading) {
@@ -202,60 +198,68 @@ export default function SchoolManagementPage() {
 
   if (!user) return null;
 
+  const isAdmin = profile?.role === "admin";
+  const isSecretary = profile?.role === "secretary";
+
   // ---------- Render ----------
   return (
-    <>
-      <div className="flex h-screen bg-gray-50">
-        <Sidebar
-          currentView={currentView}
-          onViewChange={setCurrentView}
-          isOpen={sidebarOpen}
-          onToggle={() => setSidebarOpen(!sidebarOpen)}
-          onLogout={handleLogout}
-        />
+    <div className="flex h-screen bg-gray-50">
+      <Sidebar
+        currentView={currentView}
+        onViewChange={setCurrentView}
+        isOpen={sidebarOpen}
+        onToggle={() => setSidebarOpen(!sidebarOpen)}
+        onLogout={handleLogout}
+        userRole={profile?.role}
+      />
 
-        <div className="flex-1 overflow-auto">
-          <div className="p-8">
-            {/* User Info Banner */}
-            {profile && (
-              <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                <p className="text-sm text-blue-800">
-                  <strong>Welcome:</strong> {profile.name} • <strong>School:</strong> {profile.schoolName}
-                </p>
-              </div>
-            )}
+      <div className="flex-1 overflow-auto">
+        <div className="p-8">
+          {profile && (
+            <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+              <p className="text-sm text-blue-800">
+                <strong>Welcome:</strong> {profile.name} •{" "}
+                <strong>School:</strong> {profile.schoolName}
+              </p>
+            </div>
+          )}
 
-            {currentView === "dashboard" && (
-              <DashboardView
-                students={students}
-                payments={payments}
-              />
-            )}
+          {currentView === "dashboard" && isAdmin && (
+            <DashboardView students={students} payments={payments} />
+          )}
 
-            {currentView === "students" && (
-              <StudentsView
-                students={students}
-                onAddStudent={() => { }}
-              />
-            )}
+          {currentView === "students" && (
+            <StudentsView
+              students={students}
+              onAddStudent={async () => {
+                await refreshAll();
+              }}
+            />
+          )}
 
-            {currentView === "payments" && (
-              <PaymentsView
-                students={students}
-                payments={payments}
-                onAddPayment={() => { }}
-              />
-            )}
+          {currentView === "payments" && (
+            <PaymentsView
+              students={students}
+              payments={payments}
+              onAddPayment={async () => {
+                await refreshAll();
+              }}
+            />
+          )}
 
-            {currentView === "sms" && (
-              <SMSView
-                students={students}
-                onSendSMS={handleSendSMS}
-              />
-            )}
-          </div>
+          {/* ✅ FIX: Cast SMSView so TS allows the onSendSMS prop */}
+          {currentView === "sms" && (
+            <SMSView
+              students={students}
+              {...({ onSendSMS: handleSendSMS } as any)}
+            />
+          )}
+
+          {currentView === "secretaries" && isAdmin && (
+            <ManageSecretariesView adminId={user.$id} />
+          )}
         </div>
       </div>
-    </>
+    </div>
   );
 }

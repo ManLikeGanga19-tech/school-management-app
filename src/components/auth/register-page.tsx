@@ -5,8 +5,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { BookOpen, Lock, Mail, AlertCircle, User, Building, Key } from 'lucide-react';
+import { authService } from '@/lib/appwrite/auth.service';
 
 export function RegisterPage() {
     const router = useRouter();
@@ -16,7 +16,6 @@ export function RegisterPage() {
         confirmPassword: '',
         name: '',
         schoolName: '',
-        role: 'admin',
         systemKey: '',
     });
     const [error, setError] = useState('');
@@ -60,34 +59,29 @@ export function RegisterPage() {
             return;
         }
 
+        // Verify system key (replace with your actual system key)
+        const VALID_SYSTEM_KEY = process.env.NEXT_PUBLIC_ADMIN_REGISTRATION_KEY || 'ADMIN2025KEY';
+        if (formData.systemKey !== VALID_SYSTEM_KEY) {
+            setError('Invalid system registration key. Contact system administrator.');
+            setIsLoading(false);
+            return;
+        }
+
         try {
-            // Call registration API
-            const response = await fetch('/api/auth/register', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    email: formData.email,
-                    password: formData.password,
-                    name: formData.name,
-                    schoolName: formData.schoolName,
-                    role: formData.role,
-                    systemKey: formData.systemKey,
-                }),
+            // Register admin user
+            await authService.signUp({
+                email: formData.email,
+                password: formData.password,
+                name: formData.name,
+                schoolName: formData.schoolName,
+                role: 'admin',
             });
 
-            const data = await response.json();
+            setSuccess('School registered successfully! Redirecting to login...');
 
-            if (!response.ok) {
-                throw new Error(data.error || 'Registration failed');
-            }
-
-            setSuccess('Account created successfully! Redirecting to login...');
-
-            // Redirect to home page after successful registration
+            // Redirect to login page after successful registration
             setTimeout(() => {
-                router.push('/');
+                router.push('/login');
             }, 2000);
         } catch (err: any) {
             setError(err.message || 'Registration failed. Please try again.');
@@ -105,15 +99,15 @@ export function RegisterPage() {
                         <BookOpen className="text-blue-900" size={32} />
                     </div>
                     <h1 className="text-3xl font-bold text-white mb-2">School Management System</h1>
-                    <p className="text-blue-200">System Registration Portal</p>
+                    <p className="text-blue-200">Administrator Registration Portal</p>
                 </div>
 
                 {/* Registration Card */}
                 <Card className="shadow-2xl">
                     <CardHeader>
-                        <CardTitle className="text-2xl">Create School Account</CardTitle>
+                        <CardTitle className="text-2xl">Register Your School</CardTitle>
                         <CardDescription>
-                            Register your school with the management system
+                            Create an administrator account to manage your school. After registration, you can add secretaries from your dashboard.
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
@@ -187,25 +181,6 @@ export function RegisterPage() {
                                 </div>
                             </div>
 
-                            {/* Role Selection */}
-                            <div className="space-y-2">
-                                <Label htmlFor="role">Role *</Label>
-                                <Select
-                                    value={formData.role}
-                                    onValueChange={(value) => handleInputChange('role', value)}
-                                    disabled={isLoading}
-                                >
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select role" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="admin">Administrator</SelectItem>
-                                        <SelectItem value="director">Director</SelectItem>
-                                        <SelectItem value="accountant">Accountant</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
-
                             {/* Password Fields */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="space-y-2">
@@ -245,13 +220,13 @@ export function RegisterPage() {
 
                             {/* System Key */}
                             <div className="space-y-2">
-                                <Label htmlFor="systemKey">System Registration Key *</Label>
+                                <Label htmlFor="systemKey">Administrator Registration Key *</Label>
                                 <div className="relative">
                                     <Key className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                                     <Input
                                         id="systemKey"
                                         type="password"
-                                        placeholder="Enter system registration key"
+                                        placeholder="Enter administrator registration key"
                                         value={formData.systemKey}
                                         onChange={(e) => handleInputChange('systemKey', e.target.value)}
                                         className="pl-10"
@@ -259,7 +234,7 @@ export function RegisterPage() {
                                     />
                                 </div>
                                 <p className="text-xs text-gray-500">
-                                    Contact system administrator for registration key
+                                    Contact system administrator for the registration key
                                 </p>
                             </div>
 
@@ -268,7 +243,7 @@ export function RegisterPage() {
                                 className="w-full bg-blue-900 hover:bg-blue-800"
                                 disabled={isLoading}
                             >
-                                {isLoading ? 'Creating Account...' : 'Create Account'}
+                                {isLoading ? 'Registering School...' : 'Register School'}
                             </Button>
                         </form>
 

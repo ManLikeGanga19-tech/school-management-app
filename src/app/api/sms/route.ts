@@ -3,15 +3,24 @@ import type { NextRequest } from 'next/server';
 import AfricasTalking from 'africastalking';
 
 type Body = {
-    numbers: string[]; // E.164 numbers like +2547...
+    numbers: string[]; // E.164 format (+2547...)
     message: string;
 };
+
+// Batch helper: split array into chunks of size n
+function chunkArray<T>(arr: T[], size: number): T[][] {
+    const chunks: T[][] = [];
+    for (let i = 0; i < arr.length; i += size) {
+        chunks.push(arr.slice(i, i + size));
+    }
+    return chunks;
+}
 
 export async function POST(req: NextRequest) {
     try {
         const body: Body = await req.json();
 
-        // Validate request
+        // 🔍 Validate request
         if (!body || !Array.isArray(body.numbers) || body.numbers.length === 0) {
             return NextResponse.json({ error: 'No phone numbers provided' }, { status: 400 });
         }
@@ -22,52 +31,72 @@ export async function POST(req: NextRequest) {
         const username = process.env.AFRICASTALKING_USERNAME;
         const apiKey = process.env.AFRICASTALKING_API_KEY;
 
-        console.log("AT Username:", process.env.AFRICASTALKING_USERNAME);
-        console.log("AT API Key:", process.env.AFRICASTALKING_API_KEY ? "Loaded" : "Missing");
-
-
         if (!username || !apiKey) {
-            console.error("Africa's Talking credentials missing");
+            console.error("❌ Africa's Talking credentials missing");
             return NextResponse.json({ error: 'SMS service not configured' }, { status: 500 });
         }
 
-        // Initialize Africa's Talking
+        // ✅ Initialize Africa's Talking SDK
         const africasTalking = AfricasTalking({ apiKey, username });
         const sms = africasTalking.SMS;
 
-        // Clean phone numbers
-        const cleanedNumbers = body.numbers.map(num => num.trim()).filter(num => num.length > 0);
+        // 🧹 Clean and validate numbers
+        const cleanedNumbers = body.numbers
+            .map(num => num.trim())
+            .filter(num => num.length > 0);
         if (cleanedNumbers.length === 0) {
             return NextResponse.json({ error: 'No valid phone numbers provided' }, { status: 400 });
         }
 
-        console.log('Sending SMS to:', cleanedNumbers);
-        console.log('Message:', body.message);
+        console.log(`🚀 Preparing to send SMS to ${cleanedNumbers.length} recipients...`);
 
-        // Send SMS without specifying sender ID
-        const result = await sms.send({
-            to: cleanedNumbers.join(','), // Bulk SMS
-            message: body.message,
-            // ⚠️ No 'from' property here; uses Africa's Talking default short code
-        });
+        // 🔹 Split into batches of 100 numbers (Africa’s Talking safe limit)
+        const batches = chunkArray(cleanedNumbers, 100);
 
-        console.log('SMS send result:', result);
+        let totalSent = 0;
+        let totalSuccess = 0;
+        let totalFailed = 0;
+        const allResults: any[] = [];
 
-        // Parse recipients
-        const recipients = result.SMSMessageData?.Recipients || [];
-        const successful = recipients.filter((r: any) => r.status === 'Success');
-        const failed = recipients.filter((r: any) => r.status !== 'Success');
+        // 🔁 Process each batch sequentially
+        for (const [index, batch] of batches.entries()) {
+            console.log(`📦 Sending batch ${index + 1}/${batches.length} (${batch.length} recipients)...`);
+
+            try {
+                const result = await sms.send({
+                    to: batch, // array input (preferred)
+                    message: body.message,
+                });
+
+                const recipients = result.SMSMessageData?.Recipients || [];
+                const successful = recipients.filter((r: any) => r.status === 'Success');
+                const failed = recipients.filter((r: any) => r.status !== 'Success');
+
+                totalSent += recipients.length;
+                totalSuccess += successful.length;
+                totalFailed += failed.length;
+                allResults.push({ batch: index + 1, successful, failed });
+
+                // Add small delay between batches (helps avoid throttling)
+                await new Promise(res => setTimeout(res, 800));
+            } catch (batchErr: any) {
+                console.error(`💥 Error in batch ${index + 1}:`, batchErr);
+                allResults.push({ batch: index + 1, error: batchErr.message || 'Batch send failed' });
+            }
+        }
+
+        console.log(`✅ SMS sending complete: ${totalSuccess}/${totalSent} succeeded, ${totalFailed} failed.`);
 
         return NextResponse.json({
             ok: true,
-            total: recipients.length,
-            successful: successful.length,
-            failed: failed.length,
-            details: result,
-        }, { status: 200 });
-
+            total: totalSent,
+            successful: totalSuccess,
+            failed: totalFailed,
+            batches: batches.length,
+            details: allResults,
+        });
     } catch (err: any) {
-        console.error('SMS API error:', err);
+        console.error('💥 SMS API error:', err);
         return NextResponse.json({
             error: err?.message || 'Failed to send SMS',
             details: err.toString(),

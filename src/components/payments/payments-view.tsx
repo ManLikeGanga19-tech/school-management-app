@@ -1,12 +1,12 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { AddPaymentDialog } from './add-payment-dialog';
-import { Student, FeePayment } from '@/types';
+import { Student, FeePayment, Guardian } from '@/types';
 import { paymentService } from '@/lib/appwrite/payment.service';
 import { studentService } from '@/lib/appwrite/student.service';
 import { authService } from '@/lib/appwrite/auth.service';
@@ -25,13 +25,11 @@ export function PaymentsView({ students: propsStudents, payments: propsPayments,
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState('');
 
-    useEffect(() => {
-        fetchData();
-    }, []);
-
-    const fetchData = async () => {
+    // ✅ Fetch shared school data (for both admin + secretary)
+    const fetchData = useCallback(async () => {
         setIsLoading(true);
         setError('');
+
         try {
             const user = await authService.getCurrentUser();
             if (!user) {
@@ -41,47 +39,60 @@ export function PaymentsView({ students: propsStudents, payments: propsPayments,
                 return;
             }
 
-            console.log('Fetching data for user:', user.$id);
+            const profile = await authService.getUserProfile(user.$id);
+            if (!profile?.schoolName) {
+                setError('Missing schoolName in profile.');
+                toast.error('Configuration Error', { description: 'Your account is missing school info.' });
+                setIsLoading(false);
+                return;
+            }
+
+            console.log('Fetching shared school data for:', profile.schoolName);
 
             const [studentsData, paymentsData] = await Promise.all([
-                studentService.getStudents(user.$id),
-                paymentService.getPayments(user.$id),
+                studentService.getStudentsBySchool(profile.schoolName),
+                paymentService.getPaymentsBySchool(profile.schoolName),
             ]);
 
-            console.log('Students fetched:', studentsData);
-            console.log('Payments fetched:', paymentsData);
-
-            const mappedStudents = studentsData.map(student => ({
+            // ✅ Fix guardians type (string → Guardian[])
+            const mappedStudents: Student[] = studentsData.map((student) => ({
                 ...student,
-                id: student.$id || student.$id,
+                id: student.$id,
+                guardians:
+                    typeof student.guardians === 'string'
+                        ? JSON.parse(student.guardians)
+                        : (student.guardians as Guardian[]) || [],
             }));
 
-            const mappedPayments = paymentsData.map(payment => ({
+            const mappedPayments: FeePayment[] = paymentsData.map((payment) => ({
                 ...payment,
-                id: payment.$id || payment.$id,
+                id: payment.$id,
             }));
 
-            // ✅ Deduplicate students
-            const uniqueStudents = Array.from(new Map(mappedStudents.map(s => [s.id, s])).values());
-
+            // Deduplicate and update state
+            const uniqueStudents = Array.from(new Map(mappedStudents.map((s) => [s.id, s])).values());
             setStudents(uniqueStudents);
             setPayments(mappedPayments);
 
-            toast.success('Data Loaded', { description: 'Payments and students fetched successfully.' });
+            toast.success('Data Loaded', { description: 'Payments and students loaded successfully.' });
         } catch (error: any) {
             console.error('Failed to fetch data:', error);
             setError(error.message || 'Failed to load data');
+            toast.error('Failed to Load Data', { description: error.message || 'An unexpected error occurred.' });
             setStudents(propsStudents);
             setPayments(propsPayments);
-            toast.error('Failed to Load Data', { description: error.message || 'An unexpected error occurred.' });
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [propsStudents, propsPayments]);
+
+    useEffect(() => {
+        fetchData();
+    }, [fetchData]);
 
     const handleAddPayment = async (payment: any) => {
         try {
-            await fetchData();
+            await fetchData(); // 🔄 Instant refresh after payment
             onAddPayment(payment);
             toast.success('Payment Recorded', {
                 description: `Receipt #${payment.receiptNumber} successfully recorded.`,
@@ -91,9 +102,6 @@ export function PaymentsView({ students: propsStudents, payments: propsPayments,
             toast.error('Payment Error', { description: error.message || 'Failed to record payment.' });
         }
     };
-
-    console.log('Payments to display:', payments);
-    console.log('Students available for payment:', students);
 
     return (
         <div className="p-2 sm:p-4">
@@ -168,18 +176,18 @@ export function PaymentsView({ students: propsStudents, payments: propsPayments,
                                     <TableHeader>
                                         <TableRow>
                                             <TableHead>Receipt No.</TableHead>
-                                            <TableHead>KCB M-Pesa Code</TableHead>
+                                            <TableHead>M-Pesa Code</TableHead>
                                             <TableHead>Student Name</TableHead>
                                             <TableHead>Class</TableHead>
                                             <TableHead>Parent Name</TableHead>
-                                            <TableHead>Phone Number</TableHead>
+                                            <TableHead>Phone</TableHead>
                                             <TableHead>Amount</TableHead>
                                             <TableHead>Date</TableHead>
                                             <TableHead>Time</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
-                                        {payments.map(payment => (
+                                        {payments.map((payment) => (
                                             <TableRow key={payment.$id || payment.id}>
                                                 <TableCell className="font-mono text-xs sm:text-sm font-semibold text-blue-600">
                                                     {payment.receiptNumber}
