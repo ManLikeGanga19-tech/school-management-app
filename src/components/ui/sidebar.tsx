@@ -10,13 +10,14 @@ import {
     X,
     LogOut,
     UserCog,
+    Calendar,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 
 interface SidebarProps {
     currentView: string;
-    onViewChange: (view: 'dashboard' | 'students' | 'payments' | 'sms' | 'secretaries') => void;
+    onViewChange: (view: 'dashboard' | 'students' | 'payments' | 'sms' | 'secretaries' | 'term-management') => void;
     isOpen: boolean;
     onToggle: () => void;
     onLogout: () => void;
@@ -35,16 +36,17 @@ export function Sidebar({
     let menuItems: { id: string; label: string; icon: any }[] = [];
 
     if (userRole === 'admin') {
-        // ✅ Admin menu
+        // ✅ Admin menu (with Term Management)
         menuItems = [
             { id: 'dashboard', label: 'Dashboard', icon: BookOpen },
             { id: 'students', label: 'Students', icon: Users },
             { id: 'payments', label: 'Fee Payments', icon: DollarSign },
             { id: 'sms', label: 'SMS Notifications', icon: Bell },
             { id: 'secretaries', label: 'Manage Secretaries', icon: UserCog },
+            { id: 'term-management', label: 'Term Management', icon: Calendar },
         ];
     } else if (userRole === 'secretary') {
-        // ✅ Secretary menu
+        // ✅ Secretary menu (no term management access)
         menuItems = [
             { id: 'students', label: 'Students', icon: Users },
             { id: 'payments', label: 'Fee Payments', icon: DollarSign },
@@ -67,6 +69,13 @@ export function Sidebar({
         if (userRole === 'secretary' && view === 'secretaries') {
             toast.warning('Access Restricted', {
                 description: 'Only administrators can manage users.',
+            });
+            return;
+        }
+
+        if (userRole === 'secretary' && view === 'term-management') {
+            toast.warning('Access Restricted', {
+                description: 'Only administrators can manage term settings.',
             });
             return;
         }
@@ -99,15 +108,21 @@ export function Sidebar({
                 <nav className="mt-8">
                     {menuItems.map((item) => {
                         const Icon = item.icon;
+                        const isTermManagement = item.id === 'term-management';
+
                         return (
                             <button
                                 key={item.id}
                                 onClick={() => handleViewChange(item.id)}
                                 className={`w-full flex items-center px-4 py-3 hover:bg-blue-800 transition-colors ${currentView === item.id ? 'bg-blue-800' : ''
-                                    }`}
+                                    } ${isTermManagement ? 'border-t border-blue-800 mt-2' : ''}`}
                             >
-                                <Icon size={20} />
-                                {isOpen && <span className="ml-3">{item.label}</span>}
+                                <Icon size={20} className={isTermManagement ? 'text-amber-300' : ''} />
+                                {isOpen && (
+                                    <span className={`ml-3 ${isTermManagement ? 'text-amber-300 font-semibold' : ''}`}>
+                                        {item.label}
+                                    </span>
+                                )}
                             </button>
                         );
                     })}

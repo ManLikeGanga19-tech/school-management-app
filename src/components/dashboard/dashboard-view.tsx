@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { StatsCard } from "./stat-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Student, FeePayment } from "@/types";
+import { Student, FeePayment, calculateTotalArrears } from "@/types";
 import { studentService } from "@/lib/appwrite/student.service";
 import { authService } from "@/lib/appwrite/auth.service";
 import { paymentService } from "@/lib/appwrite/payment.service";
@@ -104,6 +104,11 @@ export function DashboardView({
     const collectionRate =
         totalExpected > 0 ? ((totalCollected / totalExpected) * 100).toFixed(1) : 0;
 
+    // 🆕 Calculate arrears metrics
+    const totalArrears = students.reduce((sum, s) => sum + calculateTotalArrears(s), 0);
+    const studentsWithArrears = students.filter((s) => calculateTotalArrears(s) > 0).length;
+    const totalOwedIncludingArrears = totalOutstanding + totalArrears;
+
     const studentsByLevel = students.reduce((acc, student) => {
         let level = "Other";
         if (student.grade.includes("PP")) level = "Early Years";
@@ -129,14 +134,19 @@ export function DashboardView({
 
     const recentPaymentsTotal = recentPayments.reduce((sum, p) => sum + p.amount, 0);
 
+    // 🆕 Updated top debtors to include arrears
     const topDebtors = [...students]
-        .filter((s) => s.feeBalance > 0)
-        .sort((a, b) => b.feeBalance - a.feeBalance)
+        .filter((s) => s.feeBalance > 0 || calculateTotalArrears(s) > 0)
+        .sort((a, b) => {
+            const totalOwedA = a.feeBalance + calculateTotalArrears(a);
+            const totalOwedB = b.feeBalance + calculateTotalArrears(b);
+            return totalOwedB - totalOwedA;
+        })
         .slice(0, 5);
 
-    const fullyPaid = students.filter((s) => s.feeBalance === 0).length;
+    const fullyPaid = students.filter((s) => s.feeBalance === 0 && calculateTotalArrears(s) === 0).length;
     const partiallyPaid = students.filter(
-        (s) => s.paidFees > 0 && s.feeBalance > 0
+        (s) => s.paidFees > 0 && (s.feeBalance > 0 || calculateTotalArrears(s) > 0)
     ).length;
     const notPaid = students.filter((s) => s.paidFees === 0).length;
 
@@ -198,7 +208,7 @@ export function DashboardView({
                     <TrendingUp className="text-blue-600" /> Dashboard Overview
                 </h2>
                 <p className="text-sm sm:text-base text-gray-600 mt-1">
-                    Real-time insights into your school’s operations
+                    Real-time insights into your school's operations
                 </p>
             </div>
 
@@ -238,6 +248,42 @@ export function DashboardView({
                     valueColor="text-red-700"
                 />
             </div>
+
+            {/* 🆕 Arrears Alert Card (if arrears exist) */}
+            {totalArrears > 0 && (
+                <Card className="mb-6 sm:mb-8 border-2 border-amber-300 bg-gradient-to-r from-amber-50 to-orange-50 shadow-md">
+                    <CardContent className="p-4">
+                        <div className="flex items-start gap-3">
+                            <AlertTriangle className="h-6 w-6 text-amber-600 mt-1 flex-shrink-0" />
+                            <div className="flex-1">
+                                <h3 className="text-lg font-bold text-amber-900 mb-2">
+                                    Outstanding Arrears Detected
+                                </h3>
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                    <div className="bg-white p-3 rounded-lg border border-amber-200">
+                                        <p className="text-xs text-amber-700 mb-1">Total Arrears</p>
+                                        <p className="text-xl font-bold text-amber-900">
+                                            KES {totalArrears.toLocaleString()}
+                                        </p>
+                                    </div>
+                                    <div className="bg-white p-3 rounded-lg border border-amber-200">
+                                        <p className="text-xs text-amber-700 mb-1">Students Affected</p>
+                                        <p className="text-xl font-bold text-amber-900">
+                                            {studentsWithArrears}
+                                        </p>
+                                    </div>
+                                    <div className="bg-white p-3 rounded-lg border border-amber-200">
+                                        <p className="text-xs text-amber-700 mb-1">Total Owed</p>
+                                        <p className="text-xl font-bold text-red-700">
+                                            KES {totalOwedIncludingArrears.toLocaleString()}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
 
             {/* 🔹 Secondary Stats */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
@@ -349,7 +395,7 @@ export function DashboardView({
                 </Card>
             </div>
 
-            {/* 🔹 Top Debtors */}
+            {/* 🔹 Top Debtors (Updated with Arrears) */}
             {topDebtors.length > 0 && (
                 <Card className="shadow-sm border-red-100">
                     <CardHeader>
@@ -364,6 +410,9 @@ export function DashboardView({
                                     typeof student.guardians === "string"
                                         ? JSON.parse(student.guardians)
                                         : student.guardians;
+                                const studentArrears = calculateTotalArrears(student);
+                                const totalOwed = student.feeBalance + studentArrears;
+
                                 return (
                                     <div
                                         key={student.id}
@@ -386,11 +435,16 @@ export function DashboardView({
                                         </div>
                                         <div className="text-right">
                                             <p className="font-bold text-red-600 text-sm sm:text-lg">
-                                                KES {student.feeBalance.toLocaleString()}
+                                                KES {totalOwed.toLocaleString()}
                                             </p>
+                                            {studentArrears > 0 && (
+                                                <p className="text-xs text-amber-600 font-medium">
+                                                    Arrears: KES {studentArrears.toLocaleString()}
+                                                </p>
+                                            )}
                                             <p className="text-xs text-gray-500">
                                                 {(
-                                                    (student.feeBalance / student.totalFees) *
+                                                    (totalOwed / student.totalFees) *
                                                     100
                                                 ).toFixed(0)}
                                                 % remaining

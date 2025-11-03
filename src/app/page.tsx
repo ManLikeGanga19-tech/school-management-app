@@ -8,6 +8,7 @@ import { StudentsView } from "@/components/students/students-view";
 import { PaymentsView } from "@/components/payments/payments-view";
 import { SMSView } from "@/components/sms/sms-view";
 import { ManageSecretariesView } from "@/components/secretaries/manage-secretaries-view";
+import { TermManagement } from "@/components/admin/term-management";
 
 import { authService } from "@/lib/appwrite/auth.service";
 import { studentService } from "@/lib/appwrite/student.service";
@@ -27,7 +28,7 @@ export default function SchoolManagementPage() {
   const [students, setStudents] = useState<Student[]>([]);
   const [payments, setPayments] = useState<FeePayment[]>([]);
 
-  const [currentView, setCurrentView] = useState<View | "secretaries">("dashboard");
+  const [currentView, setCurrentView] = useState<View | "secretaries" | "term-management">("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
 
   // ---------- Mappers ----------
@@ -53,6 +54,11 @@ export default function SchoolManagementPage() {
       createdAt: (doc as any).createdAt ?? doc.$createdAt,
       $createdAt: doc.$createdAt,
       $updatedAt: doc.$updatedAt,
+      term1Arrears: (doc as any).term1Arrears ?? 0,
+      term2Arrears: (doc as any).term2Arrears ?? 0,
+      term3Arrears: (doc as any).term3Arrears ?? 0,
+      totalArrears: (doc as any).totalArrears ?? 0,
+      lastArrearsUpdate: (doc as any).lastArrearsUpdate,
     };
   };
 
@@ -70,6 +76,7 @@ export default function SchoolManagementPage() {
     paymentMethod: (doc as any).paymentMethod,
     mpesaCode: (doc as any).mpesaCode ?? "",
     receiptNumber: (doc as any).receiptNumber ?? "",
+    termNumber: (doc as any).termNumber,
     createdAt: (doc as any).createdAt ?? doc.$createdAt,
     $createdAt: doc.$createdAt,
     $updatedAt: doc.$updatedAt,
@@ -110,8 +117,7 @@ export default function SchoolManagementPage() {
 
         if (!userProfile?.schoolName) {
           toast.error("Profile incomplete", {
-            description:
-              "Your account is missing 'schoolName'. Please contact the administrator.",
+            description: "Your account is missing 'schoolName'. Please contact the administrator.",
           });
           return;
         }
@@ -136,22 +142,14 @@ export default function SchoolManagementPage() {
       await authService.logout();
       setUser(null);
       router.push("/login");
-      toast.success("Logged out", {
-        description: "You have been logged out successfully.",
-      });
+      toast.success("Logged out", { description: "You have been logged out successfully." });
     } catch (error: any) {
       console.error("Logout failed:", error);
-      toast.error("Logout failed", {
-        description: error?.message ?? String(error),
-      });
+      toast.error("Logout failed", { description: error?.message ?? String(error) });
     }
   };
 
-  const handleSendSMS = async (
-    selectedIds: string[],
-    message: string,
-    messageType?: "fee" | "general"
-  ) => {
+  const handleSendSMS = async (selectedIds: string[], message: string, messageType?: "fee" | "general") => {
     const recipients =
       selectedIds.length > 0
         ? students.filter((s) => selectedIds.includes(s.id))
@@ -179,12 +177,15 @@ export default function SchoolManagementPage() {
     });
   };
 
-  const refreshAll = async () => {
+  // ✅ Universal refresh function
+  const refreshAll = useCallback(async () => {
     if (profile?.schoolName) {
       await loadData(profile.schoolName);
+      toast.info("Data refreshed", { description: "Latest student and payment data loaded." });
     }
-  };
+  }, [profile?.schoolName, loadData]);
 
+  // ---------- Conditional Loading ----------
   if (isLoading) {
     return (
       <div className="flex h-screen items-center justify-center bg-gray-50">
@@ -225,7 +226,15 @@ export default function SchoolManagementPage() {
           )}
 
           {currentView === "dashboard" && isAdmin && (
-            <DashboardView students={students} payments={payments} />
+            <DashboardView
+              students={students}
+              payments={payments}
+              currentUser={{
+                name: profile?.name || "User",
+                schoolName: profile?.schoolName || "School",
+                role: profile?.role || "admin",
+              }}
+            />
           )}
 
           {currentView === "students" && (
@@ -237,6 +246,7 @@ export default function SchoolManagementPage() {
             />
           )}
 
+          {/* ✅ Payment updates now trigger global refresh */}
           {currentView === "payments" && (
             <PaymentsView
               students={students}
@@ -247,17 +257,15 @@ export default function SchoolManagementPage() {
             />
           )}
 
-          {/* ✅ FIX: Cast SMSView so TS allows the onSendSMS prop */}
           {currentView === "sms" && (
-            <SMSView
-              students={students}
-              {...({ onSendSMS: handleSendSMS } as any)}
-            />
+            <SMSView students={students} {...({ onSendSMS: handleSendSMS } as any)} />
           )}
 
           {currentView === "secretaries" && isAdmin && (
             <ManageSecretariesView adminId={user.$id} />
           )}
+
+          {currentView === "term-management" && isAdmin && <TermManagement />}
         </div>
       </div>
     </div>

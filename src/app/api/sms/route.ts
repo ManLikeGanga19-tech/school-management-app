@@ -3,9 +3,30 @@ import type { NextRequest } from 'next/server';
 import AfricasTalking from 'africastalking';
 
 type Body = {
-    numbers: string[]; // E.164 format (+2547...)
+    numbers: string[]; // phone numbers input
     message: string;
 };
+
+// ✅ Helper: normalize Kenyan numbers to E.164 format
+function normalizePhoneNumber(num: string): string | null {
+    // Remove spaces, dashes, and parentheses
+    num = num.replace(/[\s\-\(\)]/g, '');
+
+    // Already in correct +254 format
+    if (num.startsWith('+254')) return num;
+
+    // Starts with 254 but missing '+'
+    if (num.startsWith('254')) return `+${num}`;
+
+    // Starts with 07 (Kenyan local)
+    if (num.startsWith('07')) return `+254${num.slice(1)}`;
+
+    // Starts with 7 (short local)
+    if (num.startsWith('7')) return `+254${num}`;
+
+    // Invalid number
+    return null;
+}
 
 // Batch helper: split array into chunks of size n
 function chunkArray<T>(arr: T[], size: number): T[][] {
@@ -40,10 +61,11 @@ export async function POST(req: NextRequest) {
         const africasTalking = AfricasTalking({ apiKey, username });
         const sms = africasTalking.SMS;
 
-        // 🧹 Clean and validate numbers
+        // 🧹 Clean + normalize numbers
         const cleanedNumbers = body.numbers
-            .map(num => num.trim())
-            .filter(num => num.length > 0);
+            .map(num => normalizePhoneNumber(num.trim()))
+            .filter((num): num is string => !!num); // remove nulls
+
         if (cleanedNumbers.length === 0) {
             return NextResponse.json({ error: 'No valid phone numbers provided' }, { status: 400 });
         }
@@ -64,9 +86,13 @@ export async function POST(req: NextRequest) {
 
             try {
                 const result = await sms.send({
-                    to: batch, // array input (preferred)
+                    to: batch,
                     message: body.message,
+                    from: process.env.AFRICASTALKING_SENDER_ID || 'AFRICASTKNG',
+
                 });
+                
+                console.log("📨 Africa's Talking Response:", JSON.stringify(result, null, 2));
 
                 const recipients = result.SMSMessageData?.Recipients || [];
                 const successful = recipients.filter((r: any) => r.status === 'Success');
@@ -77,7 +103,7 @@ export async function POST(req: NextRequest) {
                 totalFailed += failed.length;
                 allResults.push({ batch: index + 1, successful, failed });
 
-                // Add small delay between batches (helps avoid throttling)
+                // Small delay between batches (avoid throttling)
                 await new Promise(res => setTimeout(res, 800));
             } catch (batchErr: any) {
                 console.error(`💥 Error in batch ${index + 1}:`, batchErr);

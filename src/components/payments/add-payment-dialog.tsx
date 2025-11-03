@@ -44,7 +44,7 @@ export function AddPaymentDialog({
         time: currentDate.toTimeString().slice(0, 5),
         paymentMethod: 'Kcb M-Pesa',
         receiptNumber: '',
-        termNumber: '' as '' | '1' | '2' | '3', // ✅ string type for select input
+        termNumber: '' as '' | '1' | '2' | '3',
     });
 
     const [search, setSearch] = useState('');
@@ -66,6 +66,51 @@ export function AddPaymentDialog({
         (s) => (s.$id || s.id) === formData.studentId
     );
 
+    // 🆕 Calculate payment allocation preview
+    const calculateAllocation = (amount: number, student: Student | undefined) => {
+        if (!student || amount <= 0) return null;
+
+        const allocation = {
+            term1: 0,
+            term2: 0,
+            term3: 0,
+            current: 0,
+            remaining: amount,
+        };
+
+        // Pay Term 1 arrears first
+        if (student.term1Arrears && student.term1Arrears > 0) {
+            const payment = Math.min(allocation.remaining, student.term1Arrears);
+            allocation.term1 = payment;
+            allocation.remaining -= payment;
+        }
+
+        // Pay Term 2 arrears
+        if (allocation.remaining > 0 && student.term2Arrears && student.term2Arrears > 0) {
+            const payment = Math.min(allocation.remaining, student.term2Arrears);
+            allocation.term2 = payment;
+            allocation.remaining -= payment;
+        }
+
+        // Pay Term 3 arrears
+        if (allocation.remaining > 0 && student.term3Arrears && student.term3Arrears > 0) {
+            const payment = Math.min(allocation.remaining, student.term3Arrears);
+            allocation.term3 = payment;
+            allocation.remaining -= payment;
+        }
+
+        // Rest goes to current term
+        if (allocation.remaining > 0) {
+            allocation.current = allocation.remaining;
+            allocation.remaining = 0;
+        }
+
+        return allocation;
+    };
+
+    const paymentAmount = parseFloat(formData.amount) || 0;
+    const allocation = calculateAllocation(paymentAmount, selectedStudent);
+
     const handleStudentSelect = (student: Student) => {
         const guardians =
             typeof student.guardians === 'string'
@@ -81,7 +126,7 @@ export function AddPaymentDialog({
                 parentName: guardians[0].name,
                 parentPhone: guardians[0].phone,
             });
-            setSearch(`${student.firstName} ${student.lastName}`);
+            setSearch('');
         }
     };
 
@@ -167,7 +212,7 @@ export function AddPaymentDialog({
                 description: 'Please wait while we process your payment',
             });
 
-            const termNumber = parseInt(formData.termNumber) as 1 | 2 | 3; // ✅ Explicit cast
+            const termNumber = parseInt(formData.termNumber) as 1 | 2 | 3;
 
             // ✅ Create payment
             const payment = await paymentService.createPayment(user.$id, {
@@ -185,14 +230,22 @@ export function AddPaymentDialog({
                 schoolName: profile.schoolName,
             });
 
-            // ✅ Update term fees correctly
-            await studentService.updateTermFees(
+            // 🆕 Update with arrears allocation
+            await studentService.updateTermFeesWithArrears(
                 formData.studentId,
                 termNumber,
                 parseFloat(formData.amount)
             );
 
             toast.dismiss(loadingToast);
+
+            const allocationText = allocation ?
+                (allocation.term1 > 0 ? `\n• Term 1 Arrears: KES ${allocation.term1.toLocaleString()}` : '') +
+                (allocation.term2 > 0 ? `\n• Term 2 Arrears: KES ${allocation.term2.toLocaleString()}` : '') +
+                (allocation.term3 > 0 ? `\n• Term 3 Arrears: KES ${allocation.term3.toLocaleString()}` : '') +
+                (allocation.current > 0 ? `\n• Current Term: KES ${allocation.current.toLocaleString()}` : '')
+                : '';
+
             toast.success('Payment Recorded Successfully! 🎉', {
                 description: (
                     <div className="mt-2 space-y-1">
@@ -200,20 +253,28 @@ export function AddPaymentDialog({
                         <p>Student: {formData.studentName}</p>
                         <p>Amount: KES {parseFloat(formData.amount).toLocaleString()}</p>
                         <p>Term: {termNumber}</p>
+                        {allocation && (
+                            <div className="mt-2 text-xs">
+                                <p className="font-semibold">Payment Allocated:</p>
+                                {allocation.term1 > 0 && <p>• Term 1 Arrears: KES {allocation.term1.toLocaleString()}</p>}
+                                {allocation.term2 > 0 && <p>• Term 2 Arrears: KES {allocation.term2.toLocaleString()}</p>}
+                                {allocation.term3 > 0 && <p>• Term 3 Arrears: KES {allocation.term3.toLocaleString()}</p>}
+                                {allocation.current > 0 && <p>• Current Term: KES {allocation.current.toLocaleString()}</p>}
+                            </div>
+                        )}
                         <p className="text-xs text-gray-500 mt-2">
                             M-Pesa Code: {formData.mpesaCode}
                         </p>
                     </div>
                 ),
-                duration: 6000,
+                duration: 8000,
             });
 
-            const successMessage = `Dear ${formData.parentName}, your payment of KES ${formData.amount} for ${formData.studentName} (${formData.studentClass}) - Term ${termNumber} has been received successfully. Thank you!`;
+            const successMessage = `Dear ${formData.parentName}, your payment of KES ${formData.amount} for ${formData.studentName} (${formData.studentClass}) has been received successfully.${allocationText} Thank you!`;
             await sendSmsNotification(formData.parentPhone, successMessage);
 
             onAdd(payment);
 
-            // ✅ Reset form
             const newDate = new Date();
             setFormData({
                 studentId: '',
@@ -283,46 +344,190 @@ export function AddPaymentDialog({
                         )}
                     </div>
 
-                    {/* Student Info */}
+                    {/* Student Info with Arrears Breakdown */}
                     {selectedStudent && (
-                        <div className="col-span-2 p-4 bg-green-50 rounded-lg border border-green-200">
-                            <p className="text-sm font-semibold text-green-900 mb-2">
-                                Payment Details:
-                            </p>
-                            <div className="grid grid-cols-2 gap-2 text-sm">
-                                <div>
-                                    <span className="text-green-700 font-medium">Student:</span>
-                                    <span className="ml-2 text-green-900">
-                                        {formData.studentName}
-                                    </span>
-                                </div>
-                                <div>
-                                    <span className="text-green-700 font-medium">Class:</span>
-                                    <span className="ml-2 text-green-900">
-                                        {formData.studentClass}
-                                    </span>
-                                </div>
-                                <div>
-                                    <span className="text-green-700 font-medium">Parent:</span>
-                                    <span className="ml-2 text-green-900">
-                                        {formData.parentName}
-                                    </span>
-                                </div>
-                                <div>
-                                    <span className="text-green-700 font-medium">Phone:</span>
-                                    <span className="ml-2 text-green-900">
-                                        {formData.parentPhone}
-                                    </span>
-                                </div>
-                                <div>
-                                    <span className="text-green-700 font-medium">
-                                        Current Balance:
-                                    </span>
-                                    <span className="ml-2 text-green-900 font-semibold">
-                                        KES {selectedStudent.feeBalance.toLocaleString()}
-                                    </span>
+                        <div className="col-span-2 space-y-3">
+                            {/* Basic Info */}
+                            <div className="p-4 bg-green-50 rounded-lg border border-green-200">
+                                <p className="text-sm font-semibold text-green-900 mb-2">
+                                    Student Details:
+                                </p>
+                                <div className="grid grid-cols-2 gap-2 text-sm">
+                                    <div>
+                                        <span className="text-green-700 font-medium">Student:</span>
+                                        <span className="ml-2 text-green-900">
+                                            {formData.studentName}
+                                        </span>
+                                    </div>
+                                    <div>
+                                        <span className="text-green-700 font-medium">Class:</span>
+                                        <span className="ml-2 text-green-900">
+                                            {formData.studentClass}
+                                        </span>
+                                    </div>
+                                    <div>
+                                        <span className="text-green-700 font-medium">Parent:</span>
+                                        <span className="ml-2 text-green-900">
+                                            {formData.parentName}
+                                        </span>
+                                    </div>
+                                    <div>
+                                        <span className="text-green-700 font-medium">Phone:</span>
+                                        <span className="ml-2 text-green-900">
+                                            {formData.parentPhone}
+                                        </span>
+                                    </div>
                                 </div>
                             </div>
+
+                            {/* Arrears Breakdown */}
+                            {((selectedStudent.term1Arrears && selectedStudent.term1Arrears > 0) ||
+                                (selectedStudent.term2Arrears && selectedStudent.term2Arrears > 0) ||
+                                (selectedStudent.term3Arrears && selectedStudent.term3Arrears > 0)) && (
+                                    <div className="p-4 bg-amber-50 rounded-lg border border-amber-200">
+                                        <p className="text-sm font-semibold text-amber-900 mb-2">
+                                            ⚠️ Outstanding Arrears:
+                                        </p>
+                                        <div className="space-y-1 text-sm">
+                                            {selectedStudent.term1Arrears && selectedStudent.term1Arrears > 0 && (
+                                                <div className="flex justify-between">
+                                                    <span className="text-amber-700">Term 1 Arrears:</span>
+                                                    <span className="font-semibold text-amber-900">
+                                                        KES {selectedStudent.term1Arrears.toLocaleString()}
+                                                    </span>
+                                                </div>
+                                            )}
+                                            {selectedStudent.term2Arrears && selectedStudent.term2Arrears > 0 && (
+                                                <div className="flex justify-between">
+                                                    <span className="text-amber-700">Term 2 Arrears:</span>
+                                                    <span className="font-semibold text-amber-900">
+                                                        KES {selectedStudent.term2Arrears.toLocaleString()}
+                                                    </span>
+                                                </div>
+                                            )}
+                                            {selectedStudent.term3Arrears && selectedStudent.term3Arrears > 0 && (
+                                                <div className="flex justify-between">
+                                                    <span className="text-amber-700">Term 3 Arrears:</span>
+                                                    <span className="font-semibold text-amber-900">
+                                                        KES {selectedStudent.term3Arrears.toLocaleString()}
+                                                    </span>
+                                                </div>
+                                            )}
+                                            <div className="flex justify-between pt-2 border-t border-amber-300">
+                                                <span className="text-amber-700 font-medium">Total Arrears:</span>
+                                                <span className="font-bold text-amber-900">
+                                                    KES {((selectedStudent.term1Arrears || 0) +
+                                                        (selectedStudent.term2Arrears || 0) +
+                                                        (selectedStudent.term3Arrears || 0)).toLocaleString()}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                            {/* Term Fee Balances - Shows only unpaid terms */}
+                            <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                                <p className="text-sm font-semibold text-blue-900 mb-2">
+                                    📊 Term Fee Balances:
+                                </p>
+                                <div className="space-y-1 text-sm">
+                                    {(selectedStudent.term1Balance && selectedStudent.term1Balance > 0) && (
+                                        <div className="flex justify-between">
+                                            <span className="text-blue-700">Term 1 Balance:</span>
+                                            <span className="font-semibold text-blue-900">
+                                                KES {selectedStudent.term1Balance.toLocaleString()}
+                                            </span>
+                                        </div>
+                                    )}
+                                    {(selectedStudent.term2Balance && selectedStudent.term2Balance > 0) && (
+                                        <div className="flex justify-between">
+                                            <span className="text-blue-700">Term 2 Balance:</span>
+                                            <span className="font-semibold text-blue-900">
+                                                KES {selectedStudent.term2Balance.toLocaleString()}
+                                            </span>
+                                        </div>
+                                    )}
+                                    {(selectedStudent.term3Balance && selectedStudent.term3Balance > 0) && (
+                                        <div className="flex justify-between">
+                                            <span className="text-blue-700">Term 3 Balance:</span>
+                                            <span className="font-semibold text-blue-900">
+                                                KES {selectedStudent.term3Balance.toLocaleString()}
+                                            </span>
+                                        </div>
+                                    )}
+
+                                    {/* Show total only if there are unpaid terms */}
+                                    {((selectedStudent.term1Balance && selectedStudent.term1Balance > 0) ||
+                                        (selectedStudent.term2Balance && selectedStudent.term2Balance > 0) ||
+                                        (selectedStudent.term3Balance && selectedStudent.term3Balance > 0)) && (
+                                            <div className="flex justify-between pt-2 border-t border-blue-300">
+                                                <span className="text-blue-700 font-medium">Total Balance:</span>
+                                                <span className="font-bold text-blue-900">
+                                                    KES {selectedStudent.feeBalance.toLocaleString()}
+                                                </span>
+                                            </div>
+                                        )}
+
+                                    {/* Show "All Fees Cleared" if no balance and no arrears */}
+                                    {selectedStudent.feeBalance === 0 &&
+                                        (!selectedStudent.term1Arrears || selectedStudent.term1Arrears === 0) &&
+                                        (!selectedStudent.term2Arrears || selectedStudent.term2Arrears === 0) &&
+                                        (!selectedStudent.term3Arrears || selectedStudent.term3Arrears === 0) && (
+                                            <div className="text-center text-green-700 font-semibold py-2">
+                                                ✅ All Fees Cleared
+                                            </div>
+                                        )}
+                                </div>
+                            </div>
+
+                            {/* Payment Allocation Preview */}
+                            {allocation && paymentAmount > 0 && (
+                                <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
+                                    <p className="text-sm font-semibold text-purple-900 mb-2">
+                                        💰 Payment Allocation Preview:
+                                    </p>
+                                    <div className="space-y-1 text-sm">
+                                        {allocation.term1 > 0 && (
+                                            <div className="flex justify-between">
+                                                <span className="text-purple-700">→ Term 1 Arrears:</span>
+                                                <span className="font-semibold text-purple-900">
+                                                    KES {allocation.term1.toLocaleString()}
+                                                </span>
+                                            </div>
+                                        )}
+                                        {allocation.term2 > 0 && (
+                                            <div className="flex justify-between">
+                                                <span className="text-purple-700">→ Term 2 Arrears:</span>
+                                                <span className="font-semibold text-purple-900">
+                                                    KES {allocation.term2.toLocaleString()}
+                                                </span>
+                                            </div>
+                                        )}
+                                        {allocation.term3 > 0 && (
+                                            <div className="flex justify-between">
+                                                <span className="text-purple-700">→ Term 3 Arrears:</span>
+                                                <span className="font-semibold text-purple-900">
+                                                    KES {allocation.term3.toLocaleString()}
+                                                </span>
+                                            </div>
+                                        )}
+                                        {allocation.current > 0 && (
+                                            <div className="flex justify-between">
+                                                <span className="text-purple-700">→ Current Term:</span>
+                                                <span className="font-semibold text-purple-900">
+                                                    KES {allocation.current.toLocaleString()}
+                                                </span>
+                                            </div>
+                                        )}
+                                        <div className="flex justify-between pt-2 border-t border-purple-300">
+                                            <span className="text-purple-700 font-medium">Total Payment:</span>
+                                            <span className="font-bold text-purple-900">
+                                                KES {paymentAmount.toLocaleString()}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -411,8 +616,8 @@ export function AddPaymentDialog({
                     {/* Info Box */}
                     <div className="col-span-2 p-3 bg-blue-50 rounded-lg border border-blue-200">
                         <p className="text-sm text-blue-800">
-                            <span className="font-semibold">📝 Receipt Number:</span> Will be
-                            auto-generated after recording payment
+                            <span className="font-semibold">📝 Note:</span> Payment will automatically
+                            clear arrears first (oldest to newest), then apply to current term balance.
                         </p>
                     </div>
                 </div>

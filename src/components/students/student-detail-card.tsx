@@ -5,8 +5,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Student, Guardian } from '@/types';
-import { CheckCircle2, XCircle, Calendar, User, Phone, Mail, GraduationCap, Hash, Cake, DollarSign } from 'lucide-react';
+import { Student, Guardian, getArrearsBreakdown, calculateTotalOwed, hasArrears } from '@/types';
+import { CheckCircle2, XCircle, Calendar, User, Phone, Mail, GraduationCap, Hash, Cake, DollarSign, AlertTriangle } from 'lucide-react';
 
 interface StudentDetailCardProps {
     student: Student | null;
@@ -23,38 +23,67 @@ export function StudentDetailCard({ student, open, onOpenChange }: StudentDetail
 
     const feeStructure = student.feeStructure ? JSON.parse(student.feeStructure) : null;
 
+    // 🆕 Get arrears breakdown
+    const arrearsBreakdown = getArrearsBreakdown(student);
+    const hasOutstandingArrears = hasArrears(student);
+    const totalOwed = calculateTotalOwed(student);
+
     const renderTermCard = (
         term: 1 | 2 | 3,
         termPaid: boolean | undefined,
         termAmount: number | undefined,
-        termBalance: number | undefined
+        termBalance: number | undefined,
+        termArrears: number | undefined
     ) => {
         const amount = termAmount || feeStructure?.[`term${term}`] || 0;
         const balance = termBalance || amount;
         const isPaid = termPaid || false;
+        const arrears = termArrears || 0;
 
         return (
             <Card
                 key={term}
-                className={`border-2 transition-shadow hover:shadow-md ${isPaid ? 'border-green-400 bg-green-50/50' : 'border-orange-400 bg-orange-50/50'
+                className={`border-2 transition-shadow hover:shadow-md ${arrears > 0
+                        ? 'border-red-400 bg-red-50/50'
+                        : isPaid
+                            ? 'border-green-400 bg-green-50/50'
+                            : 'border-orange-400 bg-orange-50/50'
                     }`}
             >
                 <CardContent className="p-4">
                     <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-2">
-                            {isPaid ? (
+                            {arrears > 0 ? (
+                                <AlertTriangle className="h-5 w-5 text-red-600" />
+                            ) : isPaid ? (
                                 <CheckCircle2 className="h-5 w-5 text-green-600" />
                             ) : (
                                 <XCircle className="h-5 w-5 text-orange-600" />
                             )}
                             <span className="text-base font-semibold text-gray-900">Term {term}</span>
                         </div>
-                        <Badge variant={isPaid ? 'default' : 'destructive'} className="text-xs">
-                            {isPaid ? 'PAID' : 'UNPAID'}
+                        <Badge
+                            variant={arrears > 0 ? 'destructive' : isPaid ? 'default' : 'destructive'}
+                            className="text-xs"
+                        >
+                            {arrears > 0 ? 'ARREARS' : isPaid ? 'PAID' : 'UNPAID'}
                         </Badge>
                     </div>
 
                     <div className="space-y-2 text-sm">
+                        {/* 🆕 Show Arrears if exists */}
+                        {arrears > 0 && (
+                            <>
+                                <div className="flex justify-between bg-red-100 -mx-4 px-4 py-2">
+                                    <span className="text-red-700 font-semibold">Arrears:</span>
+                                    <span className="font-bold text-red-700">
+                                        KES {arrears.toLocaleString()}
+                                    </span>
+                                </div>
+                                <Separator />
+                            </>
+                        )}
+
                         <div className="flex justify-between">
                             <span className="text-gray-600">Total Fee:</span>
                             <span className="font-semibold">KES {amount.toLocaleString()}</span>
@@ -73,10 +102,18 @@ export function StudentDetailCard({ student, open, onOpenChange }: StudentDetail
                     <Separator className="my-2" />
 
                     <p
-                        className={`text-center text-xs font-semibold ${isPaid ? 'text-green-700' : 'text-orange-700'
+                        className={`text-center text-xs font-semibold ${arrears > 0
+                                ? 'text-red-700'
+                                : isPaid
+                                    ? 'text-green-700'
+                                    : 'text-orange-700'
                             }`}
                     >
-                        {isPaid ? 'Fully Paid' : 'Pending Payment'}
+                        {arrears > 0
+                            ? `⚠️ Has Outstanding Arrears`
+                            : isPaid
+                                ? 'Fully Paid'
+                                : 'Pending Payment'}
                     </p>
                 </CardContent>
             </Card>
@@ -174,6 +211,55 @@ export function StudentDetailCard({ student, open, onOpenChange }: StudentDetail
                         </CardContent>
                     </Card>
 
+                    {/* 🆕 Arrears Alert (if exists) */}
+                    {hasOutstandingArrears && (
+                        <Card className="border-2 border-red-300 bg-red-50">
+                            <CardContent className="p-4">
+                                <div className="flex items-start gap-3">
+                                    <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
+                                    <div className="flex-1">
+                                        <h5 className="font-semibold text-red-900 mb-2">
+                                            Outstanding Arrears Detected
+                                        </h5>
+                                        <div className="space-y-1 text-sm">
+                                            {arrearsBreakdown.term1 > 0 && (
+                                                <div className="flex justify-between">
+                                                    <span className="text-red-700">Term 1 Arrears:</span>
+                                                    <span className="font-semibold text-red-900">
+                                                        KES {arrearsBreakdown.term1.toLocaleString()}
+                                                    </span>
+                                                </div>
+                                            )}
+                                            {arrearsBreakdown.term2 > 0 && (
+                                                <div className="flex justify-between">
+                                                    <span className="text-red-700">Term 2 Arrears:</span>
+                                                    <span className="font-semibold text-red-900">
+                                                        KES {arrearsBreakdown.term2.toLocaleString()}
+                                                    </span>
+                                                </div>
+                                            )}
+                                            {arrearsBreakdown.term3 > 0 && (
+                                                <div className="flex justify-between">
+                                                    <span className="text-red-700">Term 3 Arrears:</span>
+                                                    <span className="font-semibold text-red-900">
+                                                        KES {arrearsBreakdown.term3.toLocaleString()}
+                                                    </span>
+                                                </div>
+                                            )}
+                                            <Separator className="my-2" />
+                                            <div className="flex justify-between pt-1">
+                                                <span className="text-red-700 font-semibold">Total Arrears:</span>
+                                                <span className="font-bold text-red-900">
+                                                    KES {arrearsBreakdown.total.toLocaleString()}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    )}
+
                     {/* Fee Payment Status */}
                     <Card>
                         <CardHeader className="bg-gray-50 py-3">
@@ -183,9 +269,27 @@ export function StudentDetailCard({ student, open, onOpenChange }: StudentDetail
                             </h4>
                         </CardHeader>
                         <CardContent className="p-4 space-y-3">
-                            {renderTermCard(1, student.term1Paid, student.term1Amount, student.term1Balance)}
-                            {renderTermCard(2, student.term2Paid, student.term2Amount, student.term2Balance)}
-                            {renderTermCard(3, student.term3Paid, student.term3Amount, student.term3Balance)}
+                            {renderTermCard(
+                                1,
+                                student.term1Paid,
+                                student.term1Amount,
+                                student.term1Balance,
+                                student.term1Arrears
+                            )}
+                            {renderTermCard(
+                                2,
+                                student.term2Paid,
+                                student.term2Amount,
+                                student.term2Balance,
+                                student.term2Arrears
+                            )}
+                            {renderTermCard(
+                                3,
+                                student.term3Paid,
+                                student.term3Amount,
+                                student.term3Balance,
+                                student.term3Arrears
+                            )}
 
                             {/* Annual Summary */}
                             <Card className="bg-gradient-to-br from-gray-50 to-slate-50 border-2 mt-4">
@@ -213,6 +317,28 @@ export function StudentDetailCard({ student, open, onOpenChange }: StudentDetail
                                             </p>
                                         </div>
                                     </div>
+
+                                    {/* 🆕 Total Owed (Balance + Arrears) */}
+                                    {hasOutstandingArrears && (
+                                        <>
+                                            <Separator className="my-3" />
+                                            <div className="bg-red-100 -mx-4 -mb-4 px-4 py-3 rounded-b-lg">
+                                                <div className="flex justify-between items-center">
+                                                    <div>
+                                                        <p className="text-xs text-red-700 font-medium">
+                                                            TOTAL AMOUNT OWED
+                                                        </p>
+                                                        <p className="text-[10px] text-red-600">
+                                                            (Balance + Arrears)
+                                                        </p>
+                                                    </div>
+                                                    <p className="text-xl font-bold text-red-700">
+                                                        KES {totalOwed.toLocaleString()}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </>
+                                    )}
                                 </CardContent>
                             </Card>
                         </CardContent>

@@ -50,10 +50,14 @@ export interface UpdateStudentData {
     term3Paid?: boolean;
     term3Amount?: number;
     term3Balance?: number;
-    // 👇 new transfer fields
     isTransferred?: boolean;
     transferReason?: string;
     transferDate?: string;
+    term1Arrears?: number;
+    term2Arrears?: number;
+    term3Arrears?: number;
+    totalArrears?: number;
+    lastArrearsUpdate?: string;
 }
 
 export interface StudentDocument extends Models.Document {
@@ -82,14 +86,17 @@ export interface StudentDocument extends Models.Document {
     term3Amount?: number;
     term3Balance?: number;
     createdAt: string;
-    // 👇 new transfer tracking fields
     isTransferred?: boolean;
     transferReason?: string;
     transferDate?: string;
+    term1Arrears?: number;
+    term2Arrears?: number;
+    term3Arrears?: number;
+    totalArrears?: number;
+    lastArrearsUpdate?: string;
 }
 
 export const studentService = {
-    // ✅ Create new student
     async createStudent(userId: string, data: CreateStudentData) {
         try {
             const DATABASE_ID = process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID!;
@@ -143,6 +150,11 @@ export const studentService = {
                     isTransferred: false,
                     transferReason: "",
                     transferDate: "",
+                    term1Arrears: 0,
+                    term2Arrears: 0,
+                    term3Arrears: 0,
+                    totalArrears: 0,
+                    lastArrearsUpdate: new Date().toISOString(),
                     createdAt: new Date().toISOString(),
                 }
             );
@@ -242,7 +254,6 @@ export const studentService = {
         }
     },
 
-    // ✅ Transfer to another class (within same school)
     async transferStudent(studentId: string, newClass: string) {
         try {
             return await this.updateStudent(studentId, { grade: newClass });
@@ -251,7 +262,6 @@ export const studentService = {
         }
     },
 
-    // ✅ Mark student as transferred to another school
     async markAsTransferred(studentId: string, reason: string) {
         try {
             const updateData: UpdateStudentData = {
@@ -306,6 +316,177 @@ export const studentService = {
         } catch (error: any) {
             console.error("💥 updateTermFees error:", error);
             throw new Error(error.message || "Failed to update term fees");
+        }
+    },
+
+    // 🆕 Smart payment allocation with arrears + surplus handling
+    async updateTermFeesWithArrears(studentId: string, currentTerm: 1 | 2 | 3, paidAmount: number) {
+        try {
+            const student = await this.getStudent(studentId);
+            const updateData: UpdateStudentData = {};
+
+            let remainingPayment = paidAmount;
+
+            // 🎯 STEP 1: Pay Term 1 Arrears First
+            if (student.term1Arrears && student.term1Arrears > 0 && remainingPayment > 0) {
+                const payment = Math.min(remainingPayment, student.term1Arrears);
+                updateData.term1Arrears = student.term1Arrears - payment;
+                remainingPayment -= payment;
+                console.log(`💰 Paid Term 1 Arrears: KES ${payment}, Remaining: KES ${updateData.term1Arrears}`);
+            }
+
+            // 🎯 STEP 2: Pay Term 2 Arrears
+            if (student.term2Arrears && student.term2Arrears > 0 && remainingPayment > 0) {
+                const payment = Math.min(remainingPayment, student.term2Arrears);
+                updateData.term2Arrears = student.term2Arrears - payment;
+                remainingPayment -= payment;
+                console.log(`💰 Paid Term 2 Arrears: KES ${payment}, Remaining: KES ${updateData.term2Arrears}`);
+            }
+
+            // 🎯 STEP 3: Pay Term 3 Arrears
+            if (student.term3Arrears && student.term3Arrears > 0 && remainingPayment > 0) {
+                const payment = Math.min(remainingPayment, student.term3Arrears);
+                updateData.term3Arrears = student.term3Arrears - payment;
+                remainingPayment -= payment;
+                console.log(`💰 Paid Term 3 Arrears: KES ${payment}, Remaining: KES ${updateData.term3Arrears}`);
+            }
+
+            // 🎯 STEP 4: Pay Current Term Balance
+            if (remainingPayment > 0) {
+                const termBalance = student[`term${currentTerm}Balance` as keyof StudentDocument] as number;
+                const termAmount = student[`term${currentTerm}Amount` as keyof StudentDocument] as number;
+
+                const currentBalance = termBalance ?? termAmount ?? 0;
+
+                // Allow negative balance (overpayment/surplus)
+                const newTermBalance = currentBalance - remainingPayment;
+                const isTermCleared = newTermBalance <= 0;
+
+                (updateData as any)[`term${currentTerm}Balance`] = newTermBalance;
+                (updateData as any)[`term${currentTerm}Paid`] = isTermCleared;
+
+                remainingPayment -= Math.min(remainingPayment, currentBalance);
+                console.log(`💰 Paid Current Term ${currentTerm}: Balance: KES ${newTermBalance}`);
+            }
+
+            // 🎯 STEP 5: Apply Surplus to Next Terms (if overpaid current term)
+            if (remainingPayment > 0) {
+                // Apply to next term in sequence
+                const nextTerm = (currentTerm % 3) + 1 as 1 | 2 | 3;
+                const nextTermBalance = student[`term${nextTerm}Balance` as keyof StudentDocument] as number || 0;
+
+                if (nextTermBalance > 0) {
+                    const payment = Math.min(remainingPayment, nextTermBalance);
+                    const newNextTermBalance = nextTermBalance - payment;
+
+                    (updateData as any)[`term${nextTerm}Balance`] = newNextTermBalance;
+                    (updateData as any)[`term${nextTerm}Paid`] = newNextTermBalance <= 0;
+
+                    remainingPayment -= payment;
+                    console.log(`💚 Surplus applied to Term ${nextTerm}: KES ${payment}, Balance: KES ${newNextTermBalance}`);
+                }
+
+                // If still surplus, apply to the term after next
+                if (remainingPayment > 0) {
+                    const thirdTerm = ((currentTerm + 1) % 3) + 1 as 1 | 2 | 3;
+                    const thirdTermBalance = student[`term${thirdTerm}Balance` as keyof StudentDocument] as number || 0;
+
+                    if (thirdTermBalance > 0) {
+                        const payment = Math.min(remainingPayment, thirdTermBalance);
+                        const newThirdTermBalance = thirdTermBalance - payment;
+
+                        (updateData as any)[`term${thirdTerm}Balance`] = newThirdTermBalance;
+                        (updateData as any)[`term${thirdTerm}Paid`] = newThirdTermBalance <= 0;
+
+                        remainingPayment -= payment;
+                        console.log(`💚 Surplus applied to Term ${thirdTerm}: KES ${payment}, Balance: KES ${newThirdTermBalance}`);
+                    }
+                }
+            }
+
+            // 🎯 STEP 6: Update Total Arrears
+            const newTotalArrears =
+                (updateData.term1Arrears ?? student.term1Arrears ?? 0) +
+                (updateData.term2Arrears ?? student.term2Arrears ?? 0) +
+                (updateData.term3Arrears ?? student.term3Arrears ?? 0);
+
+            updateData.totalArrears = newTotalArrears;
+            updateData.lastArrearsUpdate = new Date().toISOString();
+
+            // 🎯 STEP 7: Update Overall Fees
+            const newPaidFees = (student.paidFees || 0) + paidAmount;
+            const newFeeBalance = Math.max((student.totalFees || 0) - newPaidFees, 0);
+
+            updateData.paidFees = newPaidFees;
+            updateData.feeBalance = newFeeBalance;
+
+            console.log(`✅ Payment allocated successfully. Total arrears: KES ${newTotalArrears}`);
+
+            return await this.updateStudent(studentId, updateData);
+        } catch (error: any) {
+            console.error("💥 updateTermFeesWithArrears error:", error);
+            throw new Error(error.message || "Failed to update term fees with arrears");
+        }
+    },
+
+    async rolloverToNextTerm(studentId: string, fromTerm: 1 | 2 | 3) {
+        try {
+            const student = await this.getStudent(studentId);
+            const updateData: UpdateStudentData = {};
+
+            const termBalance = student[`term${fromTerm}Balance` as keyof StudentDocument] as number || 0;
+
+            if (termBalance > 0) {
+                const arrearsField = `term${fromTerm}Arrears` as keyof UpdateStudentData;
+                const currentArrears = student[arrearsField as keyof StudentDocument] as number || 0;
+
+                (updateData as any)[arrearsField] = currentArrears + termBalance;
+                (updateData as any)[`term${fromTerm}Paid`] = false;
+
+                console.log(`📊 Rolled over Term ${fromTerm}: KES ${termBalance} moved to arrears`);
+            }
+
+            const newTotalArrears =
+                (updateData.term1Arrears ?? student.term1Arrears ?? 0) +
+                (updateData.term2Arrears ?? student.term2Arrears ?? 0) +
+                (updateData.term3Arrears ?? student.term3Arrears ?? 0);
+
+            updateData.totalArrears = newTotalArrears;
+            updateData.lastArrearsUpdate = new Date().toISOString();
+
+            return await this.updateStudent(studentId, updateData);
+        } catch (error: any) {
+            console.error("💥 rolloverToNextTerm error:", error);
+            throw new Error(error.message || "Failed to rollover to next term");
+        }
+    },
+
+    async rolloverAllStudentsToNextTerm(schoolName: string, fromTerm: 1 | 2 | 3) {
+        try {
+            const students = await this.getStudentsBySchool(schoolName);
+            const results = {
+                total: students.length,
+                successful: 0,
+                failed: 0,
+                errors: [] as string[],
+            };
+
+            for (const student of students) {
+                try {
+                    await this.rolloverToNextTerm(student.$id, fromTerm);
+                    results.successful++;
+                } catch (error: any) {
+                    results.failed++;
+                    results.errors.push(`${student.firstName} ${student.lastName}: ${error.message}`);
+                    console.error(`Failed to rollover student ${student.$id}:`, error);
+                }
+            }
+
+            console.log(`✅ Rollover complete: ${results.successful}/${results.total} students updated`);
+            return results;
+        } catch (error: any) {
+            console.error("💥 rolloverAllStudentsToNextTerm error:", error);
+            throw new Error(error.message || "Failed to rollover all students");
         }
     },
 

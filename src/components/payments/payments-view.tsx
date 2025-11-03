@@ -5,8 +5,9 @@ import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
 import { AddPaymentDialog } from './add-payment-dialog';
-import { Student, FeePayment, Guardian } from '@/types';
+import { Student, FeePayment, Guardian, getTermName } from '@/types';
 import { paymentService } from '@/lib/appwrite/payment.service';
 import { studentService } from '@/lib/appwrite/student.service';
 import { authService } from '@/lib/appwrite/auth.service';
@@ -179,6 +180,7 @@ export function PaymentsView({ students: propsStudents, payments: propsPayments,
                                             <TableHead>M-Pesa Code</TableHead>
                                             <TableHead>Student Name</TableHead>
                                             <TableHead>Class</TableHead>
+                                            <TableHead className="text-center">Term</TableHead>
                                             <TableHead>Parent Name</TableHead>
                                             <TableHead>Phone</TableHead>
                                             <TableHead>Amount</TableHead>
@@ -202,6 +204,19 @@ export function PaymentsView({ students: propsStudents, payments: propsPayments,
                                                     <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-semibold">
                                                         {payment.studentClass || 'N/A'}
                                                     </span>
+                                                </TableCell>
+                                                {/* 🆕 Term Badge */}
+                                                <TableCell className="text-center">
+                                                    {payment.termNumber ? (
+                                                        <Badge
+                                                            variant="outline"
+                                                            className="bg-purple-50 text-purple-700 border-purple-300 text-xs font-semibold"
+                                                        >
+                                                            {getTermName(payment.termNumber as 1 | 2 | 3)}
+                                                        </Badge>
+                                                    ) : (
+                                                        <span className="text-gray-400 text-xs">-</span>
+                                                    )}
                                                 </TableCell>
                                                 <TableCell className="font-medium">
                                                     {payment.parentName || 'N/A'}

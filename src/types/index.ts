@@ -1,6 +1,6 @@
 // ============================================
 // FILE: types/index.ts
-// Fixed Type Definitions with Fee Structure Integration
+// Fixed Type Definitions with Fee Structure Integration + Arrears Tracking
 // ============================================
 
 export interface Guardian {
@@ -46,7 +46,14 @@ export interface Student {
     term3Amount?: number;
     term3Balance?: number;
 
-    // ✅ TRANSFER TRACKING FIELDS (NEW)
+    // 🆕 ARREARS TRACKING (Updated to number type)
+    term1Arrears?: number;
+    term2Arrears?: number;
+    term3Arrears?: number;
+    totalArrears?: number;
+    lastArrearsUpdate?: string; // ISO timestamp of last arrears calculation
+
+    // ✅ TRANSFER TRACKING FIELDS
     isTransferred?: boolean; // true if transferred to another school
     transferReason?: string; // reason for transfer
     transferDate?: string; // ISO date string of transfer
@@ -66,6 +73,7 @@ export interface FeePayment {
     paymentMethod: string;
     mpesaCode: string;
     receiptNumber: string;
+    termNumber?: number; // 🆕 Track which term payment was for
     createdAt?: string;
     $createdAt?: string;
     $updatedAt?: string;
@@ -74,7 +82,7 @@ export interface FeePayment {
 export type View = 'dashboard' | 'students' | 'payments' | 'sms';
 
 // ============================================
-// FEE STRUCTURE TYPES (NEW - Added below existing types)
+// FEE STRUCTURE TYPES
 // ============================================
 
 export type StudentType = 'new' | 'old';
@@ -217,4 +225,133 @@ export function getFeeStructure(grade: string, studentType: StudentType): FeeStr
 export function calculateStudentFees(grade: string, studentType: StudentType): number {
     const feeStructure = getFeeStructure(grade, studentType);
     return feeStructure.totalAnnual;
+}
+
+// ============================================
+// 🆕 SYSTEM SETTINGS TYPES (For Term Management)
+// ============================================
+
+export interface SystemSettings {
+    $id?: string;
+    academicYear: string; // "2025", "2026"
+    currentTerm: 1 | 2 | 3;
+    term1StartDate: string; // ISO date string
+    term1EndDate: string;
+    term2StartDate: string;
+    term2EndDate: string;
+    term3StartDate: string;
+    term3EndDate: string;
+    schoolName: string;
+    lastUpdatedBy: string; // User ID who made changes
+    updatedAt?: string; // ISO timestamp
+    $createdAt?: string;
+    $updatedAt?: string;
+}
+
+// ============================================
+// 🆕 HELPER FUNCTIONS FOR ARREARS
+// ============================================
+
+/**
+ * Calculate total arrears for a student
+ */
+export function calculateTotalArrears(student: Student): number {
+    return (
+        (student.term1Arrears || 0) +
+        (student.term2Arrears || 0) +
+        (student.term3Arrears || 0)
+    );
+}
+
+/**
+ * Check if student has any outstanding arrears
+ */
+export function hasArrears(student: Student): boolean {
+    return calculateTotalArrears(student) > 0;
+}
+
+/**
+ * Get arrears breakdown for display
+ */
+export function getArrearsBreakdown(student: Student) {
+    return {
+        term1: student.term1Arrears || 0,
+        term2: student.term2Arrears || 0,
+        term3: student.term3Arrears || 0,
+        total: calculateTotalArrears(student),
+        hasArrears: hasArrears(student),
+    };
+}
+
+/**
+ * Calculate payment allocation preview
+ */
+export function calculatePaymentAllocation(amount: number, student: Student) {
+    const allocation = {
+        term1Arrears: 0,
+        term2Arrears: 0,
+        term3Arrears: 0,
+        currentTerm: 0,
+        remaining: amount,
+    };
+
+    // Pay Term 1 arrears first
+    if (student.term1Arrears && student.term1Arrears > 0) {
+        const payment = Math.min(allocation.remaining, student.term1Arrears);
+        allocation.term1Arrears = payment;
+        allocation.remaining -= payment;
+    }
+
+    // Pay Term 2 arrears
+    if (allocation.remaining > 0 && student.term2Arrears && student.term2Arrears > 0) {
+        const payment = Math.min(allocation.remaining, student.term2Arrears);
+        allocation.term2Arrears = payment;
+        allocation.remaining -= payment;
+    }
+
+    // Pay Term 3 arrears
+    if (allocation.remaining > 0 && student.term3Arrears && student.term3Arrears > 0) {
+        const payment = Math.min(allocation.remaining, student.term3Arrears);
+        allocation.term3Arrears = payment;
+        allocation.remaining -= payment;
+    }
+
+    // Rest goes to current term
+    if (allocation.remaining > 0) {
+        allocation.currentTerm = allocation.remaining;
+        allocation.remaining = 0;
+    }
+
+    return allocation;
+}
+
+/**
+ * Format currency for display (KES)
+ */
+export function formatCurrency(amount: number): string {
+    return `KES ${amount.toLocaleString()}`;
+}
+
+/**
+ * Get term name from number
+ */
+export function getTermName(termNumber: 1 | 2 | 3): string {
+    return `Term ${termNumber}`;
+}
+
+/**
+ * Check if student has cleared all fees (including arrears)
+ */
+export function hasFullyPaidFees(student: Student): boolean {
+    return (
+        student.feeBalance === 0 &&
+        calculateTotalArrears(student) === 0
+    );
+}
+
+/**
+ * Calculate total amount owed (current balance + arrears)
+ */
+export function calculateTotalOwed(student: Student): number {
+    return student.feeBalance + calculateTotalArrears(student);
 }
