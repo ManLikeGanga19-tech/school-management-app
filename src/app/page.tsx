@@ -13,6 +13,8 @@ import { TermManagement } from "@/components/admin/term-management";
 import { authService } from "@/lib/appwrite/auth.service";
 import { studentService } from "@/lib/appwrite/student.service";
 import { paymentService } from "@/lib/appwrite/payment.service";
+// ⬇️ Added: fetch term/academic year
+import { systemSettingsService } from "@/lib/appwrite/system-settings.service";
 
 import type { StudentDocument } from "@/lib/appwrite/student.service";
 import type { PaymentDocument } from "@/lib/appwrite/payment.service";
@@ -30,6 +32,11 @@ export default function SchoolManagementPage() {
 
   const [currentView, setCurrentView] = useState<View | "secretaries" | "term-management">("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
+
+  // ⬇️ Added: header states (date + settings)
+  const [today, setToday] = useState<string>("");
+  const [academicYear, setAcademicYear] = useState<string>("");
+  const [currentTerm, setCurrentTerm] = useState<1 | 2 | 3 | null>(null);
 
   // ---------- Mappers ----------
   const mapStudentDocToStudent = (doc: StudentDocument): Student => {
@@ -123,6 +130,23 @@ export default function SchoolManagementPage() {
         }
 
         await loadData(userProfile.schoolName);
+
+        // ⬇️ Added: set today's date
+        const now = new Date();
+        const formatted = now.toLocaleDateString("en-GB", {
+          weekday: "long",
+          day: "2-digit",
+          month: "long",
+          year: "numeric",
+        });
+        setToday(formatted);
+
+        // ⬇️ Added: fetch settings for academic year + term
+        const settings = await systemSettingsService.getSettings(userProfile.schoolName);
+        if (settings) {
+          setAcademicYear(settings.academicYear);
+          setCurrentTerm(settings.currentTerm);
+        }
       } catch (error) {
         console.error("Initialization error:", error);
         router.push("/login");
@@ -221,6 +245,10 @@ export default function SchoolManagementPage() {
               <p className="text-sm text-blue-800">
                 <strong>Welcome:</strong> {profile.name} •{" "}
                 <strong>School:</strong> {profile.schoolName}
+                {/* ⬇️ Added inline, beside Welcome + School */}
+                {" "}• <strong>Date:</strong> {today || "Loading..."}{" "}
+                • <strong>Academic Year:</strong> {academicYear || "—"}{" "}
+                • <strong>Current Term:</strong> {currentTerm ? `Term ${currentTerm}` : "—"}
               </p>
             </div>
           )}

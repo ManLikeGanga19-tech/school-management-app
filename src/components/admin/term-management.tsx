@@ -40,6 +40,11 @@ export function TermManagement() {
         term3EndDate: '',
     });
 
+    // ✅ Default Appwrite Collection ID fallback
+    const COLLECTION_ID =
+        process.env.NEXT_PUBLIC_APPWRITE_SYSTEM_SETTINGS_COLLECTION_ID ||
+        'system_settings'; // replace with your real Appwrite collection ID if needed
+
     // Fetch current settings
     useEffect(() => {
         loadSettings();
@@ -64,8 +69,10 @@ export function TermManagement() {
                 return;
             }
 
+            // ✅ Ensure collectionId is provided to the service
             const currentSettings = await systemSettingsService.getSettings(
-                profile.schoolName
+                profile.schoolName,
+                COLLECTION_ID
             );
 
             if (currentSettings) {
@@ -119,12 +126,18 @@ export function TermManagement() {
             };
 
             if (settings) {
-                await systemSettingsService.updateSettings(settings.$id!, settingsData);
+                // ✅ Include collectionId for update
+                await systemSettingsService.updateSettings(
+                    settings.$id!,
+                    settingsData,
+                    COLLECTION_ID
+                );
                 toast.success('Settings Updated! ✅', {
                     description: 'Term settings have been saved successfully',
                 });
             } else {
-                await systemSettingsService.createSettings(settingsData);
+                // ✅ Include collectionId for create
+                await systemSettingsService.createSettings(settingsData, COLLECTION_ID);
                 toast.success('Settings Created! ✅', {
                     description: 'Term settings have been initialized',
                 });
@@ -157,24 +170,27 @@ export function TermManagement() {
                 description: 'This may take a moment. Please wait.',
             });
 
-            // Rollover all students
             const result = await studentService.rolloverAllStudentsToNextTerm(
                 profile.schoolName,
                 currentTerm
             );
 
-            // Update term in settings
             const newAcademicYear =
                 currentTerm === 3
                     ? (parseInt(formData.academicYear) + 1).toString()
                     : formData.academicYear;
 
-            await systemSettingsService.updateSettings(settings?.$id!, {
-                currentTerm: nextTerm,
-                academicYear: newAcademicYear,
-                schoolName: profile.schoolName,
-                lastUpdatedBy: user.$id,
-            });
+            // ✅ Include collectionId when updating settings
+            await systemSettingsService.updateSettings(
+                settings?.$id!,
+                {
+                    currentTerm: nextTerm,
+                    academicYear: newAcademicYear,
+                    schoolName: profile.schoolName,
+                    lastUpdatedBy: user.$id,
+                },
+                COLLECTION_ID
+            );
 
             toast.dismiss();
             toast.success('Term Rollover Complete! 🎉', {
@@ -197,7 +213,7 @@ export function TermManagement() {
             });
 
             setShowRolloverDialog(false);
-            await loadSettings(); // Reload settings
+            await loadSettings();
         } catch (error: any) {
             console.error('Rollover failed:', error);
             toast.dismiss();

@@ -27,11 +27,16 @@ export const systemSettingsService = {
     // ============================================
     // ✅ Get current system settings (safe)
     // ============================================
-    async getSettings(schoolName: string): Promise<SystemSettings | null> {
+    async getSettings(
+        schoolName: string,
+        collectionId?: string
+    ): Promise<SystemSettings | null> {
         try {
             const DATABASE_ID = process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID!;
             const SETTINGS_COLLECTION_ID =
-                process.env.NEXT_PUBLIC_APPWRITE_SETTINGS_COLLECTION_ID!;
+                collectionId ||
+                process.env.NEXT_PUBLIC_APPWRITE_SETTINGS_COLLECTION_ID ||
+                "system_settings";
 
             let response;
 
@@ -70,12 +75,15 @@ export const systemSettingsService = {
     // ✅ Create initial settings (schema-safe)
     // ============================================
     async createSettings(
-        data: Omit<SystemSettings, "$id" | "$createdAt" | "$updatedAt">
+        data: Omit<SystemSettings, "$id" | "$createdAt" | "$updatedAt">,
+        collectionId?: string
     ): Promise<SystemSettings> {
         try {
             const DATABASE_ID = process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID!;
             const SETTINGS_COLLECTION_ID =
-                process.env.NEXT_PUBLIC_APPWRITE_SETTINGS_COLLECTION_ID!;
+                collectionId ||
+                process.env.NEXT_PUBLIC_APPWRITE_SETTINGS_COLLECTION_ID ||
+                "system_settings";
 
             const payload = {
                 academicYear: data.academicYear,
@@ -115,12 +123,15 @@ export const systemSettingsService = {
     // ============================================
     async updateSettings(
         settingsId: string,
-        data: Partial<SystemSettings>
+        data: Partial<SystemSettings>,
+        collectionId?: string
     ): Promise<SystemSettings> {
         try {
             const DATABASE_ID = process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID!;
             const SETTINGS_COLLECTION_ID =
-                process.env.NEXT_PUBLIC_APPWRITE_SETTINGS_COLLECTION_ID!;
+                collectionId ||
+                process.env.NEXT_PUBLIC_APPWRITE_SETTINGS_COLLECTION_ID ||
+                "system_settings";
 
             const safeData: Record<string, any> = {};
 
@@ -164,12 +175,15 @@ export const systemSettingsService = {
     // ✅ Get settings by document ID
     // ============================================
     async getSettingsByDocId(
-        settingsId: string
+        settingsId: string,
+        collectionId?: string
     ): Promise<SystemSettings | null> {
         try {
             const DATABASE_ID = process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID!;
             const SETTINGS_COLLECTION_ID =
-                process.env.NEXT_PUBLIC_APPWRITE_SETTINGS_COLLECTION_ID!;
+                collectionId ||
+                process.env.NEXT_PUBLIC_APPWRITE_SETTINGS_COLLECTION_ID ||
+                "system_settings";
 
             const settings = await databases.getDocument(
                 DATABASE_ID,
@@ -189,23 +203,29 @@ export const systemSettingsService = {
     // ============================================
     // ✅ Get current active term (auto-create if missing)
     // ============================================
-    async getCurrentTerm(schoolName: string): Promise<1 | 2 | 3> {
-        let settings = await this.getSettings(schoolName);
+    async getCurrentTerm(
+        schoolName: string,
+        collectionId?: string
+    ): Promise<1 | 2 | 3> {
+        let settings = await this.getSettings(schoolName, collectionId);
 
         if (!settings) {
             console.warn(`⚠️ No settings found for ${schoolName}, creating defaults...`);
-            settings = await this.createSettings({
-                academicYear: new Date().getFullYear().toString(),
-                currentTerm: 1,
-                term1StartDate: new Date().toISOString(),
-                term1EndDate: new Date().toISOString(),
-                term2StartDate: new Date().toISOString(),
-                term2EndDate: new Date().toISOString(),
-                term3StartDate: new Date().toISOString(),
-                term3EndDate: new Date().toISOString(),
-                schoolName,
-                lastUpdatedBy: "system",
-            });
+            settings = await this.createSettings(
+                {
+                    academicYear: new Date().getFullYear().toString(),
+                    currentTerm: 1,
+                    term1StartDate: new Date().toISOString(),
+                    term1EndDate: new Date().toISOString(),
+                    term2StartDate: new Date().toISOString(),
+                    term2EndDate: new Date().toISOString(),
+                    term3StartDate: new Date().toISOString(),
+                    term3EndDate: new Date().toISOString(),
+                    schoolName,
+                    lastUpdatedBy: "system",
+                },
+                collectionId
+            );
         }
 
         return settings.currentTerm;
@@ -214,7 +234,10 @@ export const systemSettingsService = {
     // ============================================
     // ✅ Term change notification
     // ============================================
-    async notifyTermChange(nextTerm: 1 | 2 | 3, schoolName: string): Promise<void> {
+    async notifyTermChange(
+        nextTerm: 1 | 2 | 3,
+        schoolName: string
+    ): Promise<void> {
         try {
             const DATABASE_ID = process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID!;
             const NOTIFICATIONS_COLLECTION_ID =
