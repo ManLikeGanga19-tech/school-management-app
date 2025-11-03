@@ -40,12 +40,10 @@ export function TermManagement() {
         term3EndDate: '',
     });
 
-    // ✅ Default Appwrite Collection ID fallback
     const COLLECTION_ID =
         process.env.NEXT_PUBLIC_APPWRITE_SYSTEM_SETTINGS_COLLECTION_ID ||
-        'system_settings'; // replace with your real Appwrite collection ID if needed
+        'system_settings';
 
-    // Fetch current settings
     useEffect(() => {
         loadSettings();
     }, []);
@@ -69,7 +67,6 @@ export function TermManagement() {
                 return;
             }
 
-            // ✅ Ensure collectionId is provided to the service
             const currentSettings = await systemSettingsService.getSettings(
                 profile.schoolName,
                 COLLECTION_ID
@@ -88,7 +85,6 @@ export function TermManagement() {
                     term3EndDate: currentSettings.term3EndDate,
                 });
             } else {
-                // Set default dates if no settings exist
                 setFormData({
                     academicYear: new Date().getFullYear().toString(),
                     currentTerm: 1,
@@ -126,7 +122,6 @@ export function TermManagement() {
             };
 
             if (settings) {
-                // ✅ Include collectionId for update
                 await systemSettingsService.updateSettings(
                     settings.$id!,
                     settingsData,
@@ -136,14 +131,13 @@ export function TermManagement() {
                     description: 'Term settings have been saved successfully',
                 });
             } else {
-                // ✅ Include collectionId for create
                 await systemSettingsService.createSettings(settingsData, COLLECTION_ID);
                 toast.success('Settings Created! ✅', {
                     description: 'Term settings have been initialized',
                 });
             }
 
-            await loadSettings(); // Reload to get updated data
+            await loadSettings();
         } catch (error: any) {
             console.error('Failed to save settings:', error);
             toast.error('Save Failed', {
@@ -180,7 +174,6 @@ export function TermManagement() {
                     ? (parseInt(formData.academicYear) + 1).toString()
                     : formData.academicYear;
 
-            // ✅ Include collectionId when updating settings
             await systemSettingsService.updateSettings(
                 settings?.$id!,
                 {
@@ -199,9 +192,7 @@ export function TermManagement() {
                         <p className="font-semibold">
                             Successfully moved to Term {nextTerm}
                         </p>
-                        <p className="text-xs mt-1">
-                            {result.successful} students updated
-                        </p>
+                        <p className="text-xs mt-1">{result.successful} students updated</p>
                         {result.failed > 0 && (
                             <p className="text-xs text-red-600 mt-1">
                                 {result.failed} students failed to update
@@ -227,7 +218,7 @@ export function TermManagement() {
 
     if (isLoading) {
         return (
-            <Card>
+            <Card className="mx-auto max-w-full sm:max-w-xl">
                 <CardContent className="p-8 text-center">
                     <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
                     <p className="text-gray-600">Loading term settings...</p>
@@ -237,19 +228,19 @@ export function TermManagement() {
     }
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-6 px-3 sm:px-0">
             {/* Current Status Card */}
             <Card className="border-2 border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50">
                 <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                        <div className="p-2 bg-blue-100 rounded-lg">
+                    <CardTitle className="flex flex-col sm:flex-row sm:items-center gap-2">
+                        <div className="p-2 bg-blue-100 rounded-lg w-fit mx-auto sm:mx-0">
                             <Calendar className="h-5 w-5 text-blue-600" />
                         </div>
-                        Current Term Status
+                        <span className="text-center sm:text-left">Current Term Status</span>
                     </CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-center sm:text-left">
                         <div>
                             <p className="text-sm text-gray-600 mb-1">Academic Year</p>
                             <p className="text-2xl font-bold text-gray-900">
@@ -258,7 +249,7 @@ export function TermManagement() {
                         </div>
                         <div>
                             <p className="text-sm text-gray-600 mb-1">Current Term</p>
-                            <div className="flex items-center gap-2">
+                            <div className="flex justify-center sm:justify-start items-center gap-2">
                                 <p className="text-2xl font-bold text-blue-600">
                                     Term {formData.currentTerm}
                                 </p>
@@ -275,8 +266,7 @@ export function TermManagement() {
                     <CardTitle>Term Dates Configuration</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                    {/* Academic Year */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                             <Label>Academic Year *</Label>
                             <Input
@@ -311,147 +301,57 @@ export function TermManagement() {
 
                     <Separator />
 
-                    {/* Term 1 Dates */}
-                    <div className="space-y-3">
-                        <div className="flex items-center gap-2">
-                            <Badge
-                                variant={formData.currentTerm === 1 ? 'default' : 'outline'}
-                                className="text-xs"
-                            >
-                                Term 1
-                            </Badge>
-                            {formData.currentTerm === 1 && (
-                                <CheckCircle className="h-4 w-4 text-green-600" />
-                            )}
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <Label className="text-sm">Start Date</Label>
-                                <Input
-                                    type="date"
-                                    value={formData.term1StartDate}
-                                    onChange={(e) =>
-                                        setFormData({
-                                            ...formData,
-                                            term1StartDate: e.target.value,
-                                        })
-                                    }
-                                />
+                    {/* Each term grid now responsive */}
+                    {[1, 2, 3].map((term) => (
+                        <div className="space-y-3" key={term}>
+                            <div className="flex flex-col sm:flex-row items-center gap-2">
+                                <Badge
+                                    variant={formData.currentTerm === term ? 'default' : 'outline'}
+                                    className="text-xs"
+                                >
+                                    Term {term}
+                                </Badge>
+                                {formData.currentTerm === term && (
+                                    <CheckCircle className="h-4 w-4 text-green-600" />
+                                )}
                             </div>
-                            <div>
-                                <Label className="text-sm">End Date</Label>
-                                <Input
-                                    type="date"
-                                    value={formData.term1EndDate}
-                                    onChange={(e) =>
-                                        setFormData({
-                                            ...formData,
-                                            term1EndDate: e.target.value,
-                                        })
-                                    }
-                                />
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <Label className="text-sm">Start Date</Label>
+                                    <Input
+                                        type="date"
+                                        value={formData[`term${term}StartDate` as keyof typeof formData] as string}
+                                        onChange={(e) =>
+                                            setFormData({
+                                                ...formData,
+                                                [`term${term}StartDate`]: e.target.value,
+                                            })
+                                        }
+                                    />
+                                </div>
+                                <div>
+                                    <Label className="text-sm">End Date</Label>
+                                    <Input
+                                        type="date"
+                                        value={formData[`term${term}EndDate` as keyof typeof formData] as string}
+                                        onChange={(e) =>
+                                            setFormData({
+                                                ...formData,
+                                                [`term${term}EndDate`]: e.target.value,
+                                            })
+                                        }
+                                    />
+                                </div>
                             </div>
+                            <Separator />
                         </div>
-                    </div>
+                    ))}
 
-                    <Separator />
-
-                    {/* Term 2 Dates */}
-                    <div className="space-y-3">
-                        <div className="flex items-center gap-2">
-                            <Badge
-                                variant={formData.currentTerm === 2 ? 'default' : 'outline'}
-                                className="text-xs"
-                            >
-                                Term 2
-                            </Badge>
-                            {formData.currentTerm === 2 && (
-                                <CheckCircle className="h-4 w-4 text-green-600" />
-                            )}
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <Label className="text-sm">Start Date</Label>
-                                <Input
-                                    type="date"
-                                    value={formData.term2StartDate}
-                                    onChange={(e) =>
-                                        setFormData({
-                                            ...formData,
-                                            term2StartDate: e.target.value,
-                                        })
-                                    }
-                                />
-                            </div>
-                            <div>
-                                <Label className="text-sm">End Date</Label>
-                                <Input
-                                    type="date"
-                                    value={formData.term2EndDate}
-                                    onChange={(e) =>
-                                        setFormData({
-                                            ...formData,
-                                            term2EndDate: e.target.value,
-                                        })
-                                    }
-                                />
-                            </div>
-                        </div>
-                    </div>
-
-                    <Separator />
-
-                    {/* Term 3 Dates */}
-                    <div className="space-y-3">
-                        <div className="flex items-center gap-2">
-                            <Badge
-                                variant={formData.currentTerm === 3 ? 'default' : 'outline'}
-                                className="text-xs"
-                            >
-                                Term 3
-                            </Badge>
-                            {formData.currentTerm === 3 && (
-                                <CheckCircle className="h-4 w-4 text-green-600" />
-                            )}
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <Label className="text-sm">Start Date</Label>
-                                <Input
-                                    type="date"
-                                    value={formData.term3StartDate}
-                                    onChange={(e) =>
-                                        setFormData({
-                                            ...formData,
-                                            term3StartDate: e.target.value,
-                                        })
-                                    }
-                                />
-                            </div>
-                            <div>
-                                <Label className="text-sm">End Date</Label>
-                                <Input
-                                    type="date"
-                                    value={formData.term3EndDate}
-                                    onChange={(e) =>
-                                        setFormData({
-                                            ...formData,
-                                            term3EndDate: e.target.value,
-                                        })
-                                    }
-                                />
-                            </div>
-                        </div>
-                    </div>
-
-                    <Separator />
-
-                    {/* Action Buttons */}
-                    <div className="flex justify-end gap-3">
+                    <div className="flex flex-col sm:flex-row justify-end gap-3">
                         <Button
                             onClick={handleSaveSettings}
                             disabled={isSaving}
-                            className="bg-blue-600 hover:bg-blue-700"
+                            className="bg-blue-600 hover:bg-blue-700 w-full sm:w-auto"
                         >
                             {isSaving ? 'Saving...' : 'Save Settings'}
                         </Button>
@@ -462,19 +362,24 @@ export function TermManagement() {
             {/* Term Rollover Card */}
             <Card className="border-2 border-orange-200 bg-orange-50">
                 <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-orange-900">
+                    <CardTitle className="flex flex-col sm:flex-row items-center gap-2 text-orange-900">
                         <AlertTriangle className="h-5 w-5" />
-                        Term Rollover
+                        <span>Term Rollover</span>
                     </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                     <div className="bg-white p-4 rounded-lg border border-orange-200">
-                        <p className="text-sm text-gray-700 mb-3">
+                        <p className="text-sm text-gray-700 mb-3 text-center sm:text-left">
                             <strong>What happens during rollover:</strong>
                         </p>
                         <ul className="text-sm text-gray-600 space-y-1 list-disc list-inside">
-                            <li>All unpaid balances from Term {formData.currentTerm} will become arrears</li>
-                            <li>System will move to Term {formData.currentTerm === 3 ? 1 : formData.currentTerm + 1}</li>
+                            <li>
+                                All unpaid balances from Term {formData.currentTerm} will become arrears
+                            </li>
+                            <li>
+                                System will move to Term{' '}
+                                {formData.currentTerm === 3 ? 1 : formData.currentTerm + 1}
+                            </li>
                             {formData.currentTerm === 3 && (
                                 <li className="text-orange-700 font-semibold">
                                     Academic year will advance to {parseInt(formData.academicYear) + 1}
@@ -497,13 +402,13 @@ export function TermManagement() {
 
             {/* Rollover Confirmation Dialog */}
             <Dialog open={showRolloverDialog} onOpenChange={setShowRolloverDialog}>
-                <DialogContent>
+                <DialogContent className="max-w-[95%] sm:max-w-lg">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
                             <AlertTriangle className="h-5 w-5 text-orange-600" />
                             Confirm Term Rollover
                         </DialogTitle>
-                        <DialogDescription className="space-y-3 pt-3">
+                        <DialogDescription className="space-y-3 pt-3 text-sm sm:text-base">
                             <p>
                                 You are about to move from{' '}
                                 <strong>Term {formData.currentTerm}</strong> to{' '}
@@ -525,18 +430,19 @@ export function TermManagement() {
                             <p>Are you sure you want to continue?</p>
                         </DialogDescription>
                     </DialogHeader>
-                    <DialogFooter className="gap-2">
+                    <DialogFooter className="flex flex-col sm:flex-row gap-2">
                         <Button
                             variant="outline"
                             onClick={() => setShowRolloverDialog(false)}
                             disabled={isRollingOver}
+                            className="w-full sm:w-auto"
                         >
                             Cancel
                         </Button>
                         <Button
                             onClick={handleRolloverToNextTerm}
                             disabled={isRollingOver}
-                            className="bg-orange-600 hover:bg-orange-700"
+                            className="bg-orange-600 hover:bg-orange-700 w-full sm:w-auto"
                         >
                             {isRollingOver ? 'Rolling Over...' : 'Confirm Rollover'}
                         </Button>

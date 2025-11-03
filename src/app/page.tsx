@@ -242,15 +242,17 @@ export default function SchoolManagementPage() {
         <div className="p-8">
           {profile && (
             <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
-              <p className="text-sm text-blue-800">
-                <strong>Welcome:</strong> {profile.name} •{" "}
-                <strong>School:</strong> {profile.schoolName}
-                {/* ⬇️ Added inline, beside Welcome + School */}
-                {" "}• <strong>Date:</strong> {today || "Loading..."}{" "}
-                • <strong>Academic Year:</strong> {academicYear || "—"}{" "}
-                • <strong>Current Term:</strong> {currentTerm ? `Term ${currentTerm}` : "—"}
+              <p className="text-sm text-blue-800 leading-relaxed">
+                <strong>Welcome:</strong> {profile.name}
+                <br />
+                <strong>Date:</strong> {today || "Loading..."}
+                <br />
+                <strong>Academic Year:</strong> {academicYear || "—"}
+                <br />
+                <strong>Current Term:</strong> {currentTerm ? `Term ${currentTerm}` : "—"}
               </p>
             </div>
+
           )}
 
           {currentView === "dashboard" && isAdmin && (
