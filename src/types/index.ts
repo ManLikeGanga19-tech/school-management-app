@@ -57,6 +57,15 @@ export interface Student {
     isTransferred?: boolean; // true if transferred to another school
     transferReason?: string; // reason for transfer
     transferDate?: string; // ISO date string of transfer
+
+    // history log for manual inputs
+    arrearsHistory?: {
+        academicYear: string;
+        term: 1 | 2 | 3;
+        amount: number;
+        enteredBy: string;
+        enteredAt: string;
+    }[];
 }
 
 export interface FeePayment {
@@ -355,3 +364,4 @@ export function hasFullyPaidFees(student: Student): boolean {
 export function calculateTotalOwed(student: Student): number {
     return student.feeBalance + calculateTotalArrears(student);
 }
+

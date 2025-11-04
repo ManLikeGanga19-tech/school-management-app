@@ -9,11 +9,11 @@ import { PaymentsView } from "@/components/payments/payments-view";
 import { SMSView } from "@/components/sms/sms-view";
 import { ManageSecretariesView } from "@/components/secretaries/manage-secretaries-view";
 import { TermManagement } from "@/components/admin/term-management";
+import { ArrearsManagement } from "@/components/admin/arrears-management"; // 🆕 Added
 
 import { authService } from "@/lib/appwrite/auth.service";
 import { studentService } from "@/lib/appwrite/student.service";
 import { paymentService } from "@/lib/appwrite/payment.service";
-// ⬇️ Added: fetch term/academic year
 import { systemSettingsService } from "@/lib/appwrite/system-settings.service";
 
 import type { StudentDocument } from "@/lib/appwrite/student.service";
@@ -30,10 +30,12 @@ export default function SchoolManagementPage() {
   const [students, setStudents] = useState<Student[]>([]);
   const [payments, setPayments] = useState<FeePayment[]>([]);
 
-  const [currentView, setCurrentView] = useState<View | "secretaries" | "term-management">("dashboard");
+  const [currentView, setCurrentView] = useState<
+    View | "secretaries" | "term-management" | "arrears-management"
+  >("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
 
-  // ⬇️ Added: header states (date + settings)
+  // Header info
   const [today, setToday] = useState<string>("");
   const [academicYear, setAcademicYear] = useState<string>("");
   const [currentTerm, setCurrentTerm] = useState<1 | 2 | 3 | null>(null);
@@ -124,14 +126,15 @@ export default function SchoolManagementPage() {
 
         if (!userProfile?.schoolName) {
           toast.error("Profile incomplete", {
-            description: "Your account is missing 'schoolName'. Please contact the administrator.",
+            description:
+              "Your account is missing 'schoolName'. Please contact the administrator.",
           });
           return;
         }
 
         await loadData(userProfile.schoolName);
 
-        // ⬇️ Added: set today's date
+        // ⬇️ Today's date
         const now = new Date();
         const formatted = now.toLocaleDateString("en-GB", {
           weekday: "long",
@@ -141,8 +144,10 @@ export default function SchoolManagementPage() {
         });
         setToday(formatted);
 
-        // ⬇️ Added: fetch settings for academic year + term
-        const settings = await systemSettingsService.getSettings(userProfile.schoolName);
+        // ⬇️ Fetch system settings
+        const settings = await systemSettingsService.getSettings(
+          userProfile.schoolName
+        );
         if (settings) {
           setAcademicYear(settings.academicYear);
           setCurrentTerm(settings.currentTerm);
@@ -166,14 +171,22 @@ export default function SchoolManagementPage() {
       await authService.logout();
       setUser(null);
       router.push("/login");
-      toast.success("Logged out", { description: "You have been logged out successfully." });
+      toast.success("Logged out", {
+        description: "You have been logged out successfully.",
+      });
     } catch (error: any) {
       console.error("Logout failed:", error);
-      toast.error("Logout failed", { description: error?.message ?? String(error) });
+      toast.error("Logout failed", {
+        description: error?.message ?? String(error),
+      });
     }
   };
 
-  const handleSendSMS = async (selectedIds: string[], message: string, messageType?: "fee" | "general") => {
+  const handleSendSMS = async (
+    selectedIds: string[],
+    message: string,
+    messageType?: "fee" | "general"
+  ) => {
     const recipients =
       selectedIds.length > 0
         ? students.filter((s) => selectedIds.includes(s.id))
@@ -201,11 +214,13 @@ export default function SchoolManagementPage() {
     });
   };
 
-  // ✅ Universal refresh function
+  // ✅ Universal refresh
   const refreshAll = useCallback(async () => {
     if (profile?.schoolName) {
       await loadData(profile.schoolName);
-      toast.info("Data refreshed", { description: "Latest student and payment data loaded." });
+      toast.info("Data refreshed", {
+        description: "Latest student and payment data loaded.",
+      });
     }
   }, [profile?.schoolName, loadData]);
 
@@ -249,10 +264,10 @@ export default function SchoolManagementPage() {
                 <br />
                 <strong>Academic Year:</strong> {academicYear || "—"}
                 <br />
-                <strong>Current Term:</strong> {currentTerm ? `Term ${currentTerm}` : "—"}
+                <strong>Current Term:</strong>{" "}
+                {currentTerm ? `Term ${currentTerm}` : "—"}
               </p>
             </div>
-
           )}
 
           {currentView === "dashboard" && isAdmin && (
@@ -276,7 +291,6 @@ export default function SchoolManagementPage() {
             />
           )}
 
-          {/* ✅ Payment updates now trigger global refresh */}
           {currentView === "payments" && (
             <PaymentsView
               students={students}
@@ -288,7 +302,10 @@ export default function SchoolManagementPage() {
           )}
 
           {currentView === "sms" && (
-            <SMSView students={students} {...({ onSendSMS: handleSendSMS } as any)} />
+            <SMSView
+              students={students}
+              {...({ onSendSMS: handleSendSMS } as any)}
+            />
           )}
 
           {currentView === "secretaries" && isAdmin && (
@@ -296,6 +313,10 @@ export default function SchoolManagementPage() {
           )}
 
           {currentView === "term-management" && isAdmin && <TermManagement />}
+
+          {currentView === "arrears-management" && isAdmin && (
+            <ArrearsManagement />
+          )}
         </div>
       </div>
     </div>

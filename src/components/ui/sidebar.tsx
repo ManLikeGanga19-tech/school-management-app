@@ -11,13 +11,23 @@ import {
     LogOut,
     UserCog,
     Calendar,
+    Coins, // 🆕 Icon for Arrears Management
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 
 interface SidebarProps {
     currentView: string;
-    onViewChange: (view: 'dashboard' | 'students' | 'payments' | 'sms' | 'secretaries' | 'term-management') => void;
+    onViewChange: (
+        view:
+            | 'dashboard'
+            | 'students'
+            | 'payments'
+            | 'sms'
+            | 'secretaries'
+            | 'term-management'
+            | 'arrears-management'
+    ) => void;
     isOpen: boolean;
     onToggle: () => void;
     onLogout: () => void;
@@ -36,7 +46,7 @@ export function Sidebar({
     let menuItems: { id: string; label: string; icon: any }[] = [];
 
     if (userRole === 'admin') {
-        // ✅ Admin menu (with Term Management)
+        // ✅ Admin menu (now includes Arrears Management)
         menuItems = [
             { id: 'dashboard', label: 'Dashboard', icon: BookOpen },
             { id: 'students', label: 'Students', icon: Users },
@@ -44,9 +54,10 @@ export function Sidebar({
             { id: 'sms', label: 'SMS Notifications', icon: Bell },
             { id: 'secretaries', label: 'Manage Secretaries', icon: UserCog },
             { id: 'term-management', label: 'Term Management', icon: Calendar },
+            { id: 'arrears-management', label: 'Arrears Management', icon: Coins }, // 🆕 Added
         ];
     } else if (userRole === 'secretary') {
-        // ✅ Secretary menu (no term management access)
+        // ✅ Secretary menu (restricted: no Term or Arrears Management)
         menuItems = [
             { id: 'students', label: 'Students', icon: Users },
             { id: 'payments', label: 'Fee Payments', icon: DollarSign },
@@ -57,25 +68,11 @@ export function Sidebar({
         menuItems = [{ id: 'dashboard', label: 'Dashboard', icon: BookOpen }];
     }
 
-    // 🔒 Prevent restricted access (e.g., secretary clicking Dashboard manually)
+    // 🔒 Prevent restricted access
     const handleViewChange = (view: string) => {
-        if (userRole === 'secretary' && view === 'dashboard') {
+        if (userRole === 'secretary' && ['dashboard', 'secretaries', 'term-management', 'arrears-management'].includes(view)) {
             toast.warning('Access Restricted', {
-                description: 'Secretaries cannot access the dashboard.',
-            });
-            return;
-        }
-
-        if (userRole === 'secretary' && view === 'secretaries') {
-            toast.warning('Access Restricted', {
-                description: 'Only administrators can manage users.',
-            });
-            return;
-        }
-
-        if (userRole === 'secretary' && view === 'term-management') {
-            toast.warning('Access Restricted', {
-                description: 'Only administrators can manage term settings.',
+                description: 'Only administrators can access this section.',
             });
             return;
         }
@@ -108,18 +105,33 @@ export function Sidebar({
                 <nav className="mt-8">
                     {menuItems.map((item) => {
                         const Icon = item.icon;
-                        const isTermManagement = item.id === 'term-management';
+                        const isSpecial =
+                            item.id === 'term-management' || item.id === 'arrears-management';
 
                         return (
                             <button
                                 key={item.id}
                                 onClick={() => handleViewChange(item.id)}
                                 className={`w-full flex items-center px-4 py-3 hover:bg-blue-800 transition-colors ${currentView === item.id ? 'bg-blue-800' : ''
-                                    } ${isTermManagement ? 'border-t border-blue-800 mt-2' : ''}`}
+                                    } ${isSpecial ? 'border-t border-blue-800 mt-2' : ''}`}
                             >
-                                <Icon size={20} className={isTermManagement ? 'text-amber-300' : ''} />
+                                <Icon
+                                    size={20}
+                                    className={
+                                        isSpecial
+                                            ? item.id === 'arrears-management'
+                                                ? 'text-amber-400'
+                                                : 'text-amber-300'
+                                            : ''
+                                    }
+                                />
                                 {isOpen && (
-                                    <span className={`ml-3 ${isTermManagement ? 'text-amber-300 font-semibold' : ''}`}>
+                                    <span
+                                        className={`ml-3 ${isSpecial
+                                                ? 'text-amber-300 font-semibold'
+                                                : ''
+                                            }`}
+                                    >
                                         {item.label}
                                     </span>
                                 )}
